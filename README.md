@@ -8,7 +8,7 @@ downloads the GeoTIFF and loads it into your QGIS project.
 ## Requirements
 
 - QGIS 3.0 or later
-- A Gamma Earth **User ID** with available Data Allowance (see https://gamma.earth)
+- A Gamma Earth **API key** with available Data Allowance (see https://gamma.earth)
 - Internet access (the `requests` Python package is used; it ships with QGIS)
 
 ## Installation
@@ -31,12 +31,12 @@ Open the plugin from the **Gamma Earth** toolbar icon or the *Plugins > Gamma Ea
 2. **Find a date (optional)** - enter a date range and maximum cloud cover, then
    click *Check Sentinel-2 dates in CDSE* to list available acquisitions from the
    Copernicus Data Space STAC catalogue.
-3. Enter the **Date** (`YYYY-MM-DD`), your **User ID**, the **Product type**
+3. Enter the **Date** (`YYYY-MM-DD`), the **Date range** (days, default 7), your **API key**, the **Product type**
    (`MS`, `TCI`, `NDVI` or `IRP`) and an **Output folder**.
 4. Click **Submit**. Progress is shown in the status log; the result is
    downloaded to the output folder and added to the project.
 
-The last User ID and output folder are remembered between sessions.
+The API key, date range and output folder are remembered between sessions.
 
 ## Support
 

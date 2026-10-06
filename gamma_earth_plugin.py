@@ -17,6 +17,23 @@ import time
 import math
 
 
+API_BASE_URL = "https://api.gamma.earth/jobs"
+
+
+def storage_url(path):
+    """Convert an s3:// or gs:// path into a public HTTPS URL."""
+    if path.startswith("s3://"):
+        bucket, _, key = path[len("s3://"):].partition("/")
+        return f"https://{bucket}.s3.amazonaws.com/{key}"
+    if path.startswith("gs://"):
+        return path.replace("gs://", "https://storage.googleapis.com/")
+    return path
+
+
+def settings_default_range():
+    return QSettings().value("GammaEarth/date_range", "7")
+
+
 # ============================================================
 # Download Worker (runs in background thread)
 # ============================================================
@@ -58,7 +75,7 @@ class PollWorker(QObject):
     timeout = pyqtSignal(str)    # URL when timeout
     error = pyqtSignal(str)      # error message
 
-    def __init__(self, url, attempts=30, wait_seconds=6):
+    def __init__(self, url, attempts=50, wait_seconds=6):
         super().__init__()
         self.url = url
         self.attempts = attempts
@@ -172,11 +189,16 @@ class AOIDialog(QDialog):
         self.date_input = QLineEdit()
         layout.addWidget(self.date_input)
 
-        # --- User ID & product type ---
+        layout.addWidget(QLabel("Date range (days)"))
+        self.date_range_input = QLineEdit(settings_default_range())
+        layout.addWidget(self.date_range_input)
+
+        # --- API key & product type ---
         settings = QSettings()
-        self.user_id_input = QLineEdit(settings.value("GammaEarth/last_user_id", ""))
-        layout.addWidget(QLabel("User ID"))
-        layout.addWidget(self.user_id_input)
+        self.api_key_input = QLineEdit(settings.value("GammaEarth/api_key", ""))
+        self.api_key_input.setEchoMode(QLineEdit.Password)
+        layout.addWidget(QLabel("API key"))
+        layout.addWidget(self.api_key_input)
 
         self.product_select = QComboBox()
         self.product_select.addItems(["MS", "TCI", "NDVI", "IRP"])
@@ -209,7 +231,7 @@ class AOIDialog(QDialog):
         # --- Gamma Earth branding (small marketing text) ---
         self.brand_label = QLabel(
             "<small><i>Gamma Earth S2DR3 – Super-resolution for Sentinel-2. "
-            "Requires user_id and Data Allowance. Learn more at https://gamma.earth</i></small>"
+            "Requires a Gamma Earth API key and Data Allowance. Learn more at https://gamma.earth</i></small>"
         )
         layout.addWidget(self.brand_label)
 
@@ -296,7 +318,8 @@ class AOIDialog(QDialog):
             "side_km": self.side_km.text(),
             "geojson": self.geojson_path.text(),
             "date": self.date_input.text(),
-            "user_id": self.user_id_input.text(),
+            "date_range": self.date_range_input.text(),
+            "api_key": self.api_key_input.text(),
             "product": self.product_select.currentText(),
             "output_folder": self.folder_input.text(),
             "cdse_from": self.cdse_from.text(),
@@ -314,6 +337,7 @@ class GammaEarthPlugin:
         self.action = None
         self.output_folder = ""
         self.poll_thread = None
+        self.job_id = None
         self.poll_worker = None
         self.download_thread = None
         self.download_worker = None
@@ -355,11 +379,20 @@ class GammaEarthPlugin:
         d = self.dialog.get_data()
         print(f"[GammaEarth] run_from_dialog() AOI mode: {d['aoi_mode']}")
 
-        if not d["user_id"].isdigit():
-            self.dialog.set_status("Invalid user ID", True, clear=True)
+        api_key = d["api_key"].strip()
+        if not api_key or "/" in api_key:
+            self.dialog.set_status("Invalid API key", True, clear=True)
             return
 
-        QSettings().setValue("GammaEarth/last_user_id", d["user_id"])
+        date_range = d["date_range"].strip()
+        if not date_range.isdigit() or int(date_range) < 1:
+            self.dialog.set_status(
+                "Date range must be a positive number of days", True, clear=True
+            )
+            return
+
+        QSettings().setValue("GammaEarth/api_key", api_key)
+        QSettings().setValue("GammaEarth/date_range", date_range)
         QSettings().setValue("GammaEarth/last_output_folder", d["output_folder"])
         self.output_folder = d["output_folder"]
 
@@ -369,7 +402,7 @@ class GammaEarthPlugin:
 
         self.dialog.set_status("Submitting Gamma Earth job…", error=False, clear=False)
         self.dialog.submit_button.setEnabled(False)
-        self.submit_job(d["user_id"], aoi, d["date"], d["product"])
+        self.submit_job(api_key, aoi, d["date"], date_range, d["product"])
 
     # ========================================================
     def update_selection_feedback(self):
@@ -594,9 +627,9 @@ class GammaEarthPlugin:
         return None
 
     # ========================================================
-    def submit_job(self, user_id, aoi, date, product):
-        url = f"https://s2dr3-job-20250428-862134799361.europe-west1.run.app/{user_id}"
-        payload = {"aoi": aoi, "date": date}
+    def submit_job(self, api_key, aoi, date, date_range, product):
+        url = f"{API_BASE_URL}/{api_key}"
+        payload = {"date": date, "date_range": date_range, "aoi": aoi}
 
         try:
             r = requests.post(url, json=payload, timeout=60)
@@ -611,36 +644,56 @@ class GammaEarthPlugin:
             data = r.json()
             print("[GammaEarth] Response JSON keys:", list(data.keys()))
 
-            if product == "MS":
-                path_key = "save_path_MS"
-            elif product == "TCI":
-                path_key = "save_path_TCI"
-            elif product in ("NDVI", "IRP"):
-                path_key = "save_path_TCI"
+            if product in ("NDVI", "IRP"):
                 self.dialog.set_status(
                     f"{product} not yet available as direct GeoTIFF; downloading TCI instead.",
                     error=False
                 )
-            else:
+                product = "TCI"
+            elif product not in ("MS", "TCI"):
                 self.dialog.set_status(f"Unknown product type: {product}", True)
                 self.dialog.submit_button.setEnabled(True)
                 return
 
-            tif_path = data.get(path_key)
+            tif_path = self.resolve_output_path(data, product)
             if not tif_path:
                 self.dialog.set_status(
-                    f"No output path returned for key '{path_key}'", True
+                    f"No output path for product '{product}' in server response", True
                 )
                 self.dialog.submit_button.setEnabled(True)
                 return
 
-            download_url = tif_path.replace("gs://", "https://storage.googleapis.com/")
+            job_id = data.get("job_id")
+            self.job_id = job_id
+            if job_id:
+                self.dialog.set_status(f"Job submitted (job_id: {job_id})")
+
+            download_url = storage_url(tif_path)
             self.start_polling(download_url)
 
         except Exception as e:
             print(f"[GammaEarth] Exception in submit_job: {e}")
             self.dialog.set_status(f"Error submitting job: {e}", True)
             self.dialog.submit_button.setEnabled(True)
+
+    @staticmethod
+    def resolve_output_path(data, product):
+        """
+        Find the output GeoTIFF path for `product` in the job response.
+        The API returns e.g. "save_path_S3_TCI"; if the requested product has
+        no key of its own, derive it from another product's path by swapping
+        the "_<PRODUCT>.tif" filename suffix.
+        """
+        for key in (f"save_path_S3_{product}", f"save_path_{product}"):
+            if data.get(key):
+                return data[key]
+        for key, value in data.items():
+            if key.startswith("save_path") and isinstance(value, str):
+                for other in ("TCI", "MS"):
+                    suffix = f"_{other}.tif"
+                    if value.endswith(suffix):
+                        return value[: -len(suffix)] + f"_{product}.tif"
+        return None
 
     # ========================================================
     def start_polling(self, url):
@@ -672,7 +725,10 @@ class GammaEarthPlugin:
         self.download(url)
 
     def on_poll_timeout(self, url):
-        self.dialog.set_status(f"File not ready. Manual download:\n{url}", True)
+        job = f" (job_id: {self.job_id})" if getattr(self, "job_id", None) else ""
+        self.dialog.set_status(
+            f"File not ready after 5 minutes{job}. Manual download:\n{url}", True
+        )
         self.dialog.submit_button.setEnabled(True)
 
     def on_poll_error(self, msg):
