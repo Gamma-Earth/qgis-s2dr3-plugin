@@ -1,0 +1,7 @@
+[general]
+name=S2DR3
+description=10x super-resolution of Sentinel-2 images using Gamma Earth's S2DR3 API.
+version=1.0
+qgisMinimumVersion=3.0
+author=Lorenzo Martelletti
+email=info@gamma.earth
