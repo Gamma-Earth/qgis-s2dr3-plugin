@@ -5,3 +5,6 @@ version=1.0
 qgisMinimumVersion=3.0
 author=Lorenzo Martelletti
 email=info@gamma.earth
+homepage=https://gamma.earth
+repository=https://github.com/Gamma-Earth/gamma-earth-plugin
+tracker=https://github.com/Gamma-Earth/gamma-earth-plugin/issues
