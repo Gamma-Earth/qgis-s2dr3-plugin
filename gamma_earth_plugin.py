@@ -18,7 +18,15 @@ import time
 import math
 
 
-API_BASE_URL = "https://api.gamma.earth/jobs"
+DEFAULT_API_BASE_URL = "https://api.gamma.earth/jobs"
+
+
+def api_base_url():
+    """Production URL unless overridden (e.g. for testing) by the
+    GAMMA_EARTH_API_URL environment variable or the QGIS setting
+    GammaEarth/api_url."""
+    url = os.environ.get("GAMMA_EARTH_API_URL") or QSettings().value("GammaEarth/api_url", "")
+    return (url or DEFAULT_API_BASE_URL).rstrip("/")
 
 
 def storage_url(path):
@@ -117,7 +125,7 @@ class CreditsWorker(QObject):
 
     def run(self):
         try:
-            r = requests.get(f"{API_BASE_URL}/{self.api_key}", timeout=30)
+            r = requests.get(f"{api_base_url()}/{self.api_key}", timeout=30)
             if r.status_code != 200:
                 try:
                     msg = r.json().get("error", r.text)
@@ -710,7 +718,7 @@ class GammaEarthPlugin:
 
     # ========================================================
     def submit_job(self, api_key, aoi, date, date_range, product):
-        url = f"{API_BASE_URL}/{api_key}"
+        url = f"{api_base_url()}/{api_key}"
         payload = {"date": date, "date_range": date_range, "aoi": aoi}
 
         try:
