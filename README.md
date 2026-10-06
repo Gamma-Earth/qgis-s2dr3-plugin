@@ -47,3 +47,6 @@ The API key, date range and output folder are remembered between sessions.
 
 Report issues at https://github.com/Gamma-Earth/gamma-earth-plugin/issues
 or contact info@gamma.earth.
+
+For a development setup (symlinking the repo into QGIS) see
+[DEVELOPMENT.md](DEVELOPMENT.md).
