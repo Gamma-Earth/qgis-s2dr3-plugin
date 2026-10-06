@@ -36,6 +36,11 @@ Open the plugin from the **Gamma Earth** toolbar icon or the *Plugins > Gamma Ea
 4. Click **Submit**. Progress is shown in the status log; the result is
    downloaded to the output folder and added to the project.
 
+Click **Check credits** to see your balance (purchased and bonus) and a table of
+recent jobs with the credits each one used. After submitting, the plugin reports how
+many credits were reserved, and once the result is downloaded it reports the final
+cost of the job. Credits reserved for a job that fails are returned to your balance.
+
 The API key, date range and output folder are remembered between sessions.
 
 ## Support

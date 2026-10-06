@@ -3,7 +3,8 @@
 from PyQt5.QtWidgets import (
     QAction, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QComboBox,
-    QProgressBar, QFileDialog, QRadioButton, QButtonGroup, QMessageBox, QPlainTextEdit
+    QProgressBar, QFileDialog, QRadioButton, QButtonGroup, QMessageBox, QPlainTextEdit,
+    QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QObject, QThread, pyqtSignal, QSettings
@@ -28,6 +29,11 @@ def storage_url(path):
     if path.startswith("gs://"):
         return path.replace("gs://", "https://storage.googleapis.com/")
     return path
+
+
+def redact(text, api_key):
+    """requests errors embed the request URL, which contains the API key."""
+    return text.replace(api_key, "***") if api_key else text
 
 
 def settings_default_range():
@@ -96,6 +102,32 @@ class PollWorker(QObject):
             self.timeout.emit(self.url)
         except Exception as e:
             self.error.emit(str(e))
+
+
+# ============================================================
+# Credits Worker (GET <API_BASE_URL>/<api_key> in the background)
+# ============================================================
+class CreditsWorker(QObject):
+    result = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, api_key):
+        super().__init__()
+        self.api_key = api_key
+
+    def run(self):
+        try:
+            r = requests.get(f"{API_BASE_URL}/{self.api_key}", timeout=30)
+            if r.status_code != 200:
+                try:
+                    msg = r.json().get("error", r.text)
+                except ValueError:
+                    msg = r.text
+                self.error.emit(f"{r.status_code}: {msg}")
+                return
+            self.result.emit(r.json())
+        except Exception as e:
+            self.error.emit(redact(str(e), self.api_key))
 
 
 # ============================================================
@@ -200,6 +232,26 @@ class AOIDialog(QDialog):
         layout.addWidget(QLabel("API key"))
         layout.addWidget(self.api_key_input)
 
+        # --- Credits ---
+        self.credits_label = QLabel("Credits: not checked")
+        self.credits_button = QPushButton("Check credits")
+        credits_row = QHBoxLayout()
+        credits_row.addWidget(self.credits_label, 1)
+        credits_row.addWidget(self.credits_button)
+        layout.addLayout(credits_row)
+
+        self.jobs_table = QTableWidget(0, 4)
+        self.jobs_table.setHorizontalHeaderLabels(
+            ["Job ID", "Date", "Status", "Credits used"]
+        )
+        self.jobs_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.jobs_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.jobs_table.verticalHeader().setVisible(False)
+        self.jobs_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.jobs_table.setMaximumHeight(140)
+        self.jobs_table.setVisible(False)
+        layout.addWidget(self.jobs_table)
+
         self.product_select = QComboBox()
         self.product_select.addItems(["MS", "TCI", "NDVI", "IRP"])
         layout.addWidget(QLabel("Product type"))
@@ -289,6 +341,32 @@ class AOIDialog(QDialog):
         if folder:
             self.folder_input.setText(folder)
 
+    def show_credits(self, data):
+        credits = data.get("credits", {})
+        self.credits_label.setText(
+            f"<b>Credits: {credits.get('total_balance', '?')}</b> "
+            f"(purchased {credits.get('purchased_balance', '?')}, "
+            f"bonus {credits.get('bonus_balance', '?')})"
+        )
+        jobs = data.get("jobs", [])
+        self.jobs_table.setRowCount(len(jobs))
+        for row, job in enumerate(jobs):
+            status = job.get("credits_status", "")
+            used = job.get("credits_used", 0)
+            if status == "PENDING":
+                used_text = f"{job.get('credits_requested', '?')} (reserved)"
+            else:
+                used_text = str(used)
+            values = [
+                job.get("job_id", ""),
+                (job.get("reserved_at") or "")[:10],
+                status.capitalize(),
+                used_text,
+            ]
+            for col, value in enumerate(values):
+                self.jobs_table.setItem(row, col, QTableWidgetItem(value))
+        self.jobs_table.setVisible(bool(jobs))
+
     def set_progress(self, v: int):
         self.progress.setVisible(True)
         self.progress.setValue(v)
@@ -338,6 +416,7 @@ class GammaEarthPlugin:
         self.output_folder = ""
         self.poll_thread = None
         self.job_id = None
+        self.credits_workers = set()
         self.poll_worker = None
         self.download_thread = None
         self.download_worker = None
@@ -365,6 +444,9 @@ class GammaEarthPlugin:
 
         # CDSE helper
         self.dialog.cdse_button.clicked.connect(self.check_cdse_dates)
+
+        # Credits
+        self.dialog.credits_button.clicked.connect(self.refresh_credits)
 
         # AOI feedback for method 1
         self.update_selection_feedback()
@@ -667,14 +749,72 @@ class GammaEarthPlugin:
             self.job_id = job_id
             if job_id:
                 self.dialog.set_status(f"Job submitted (job_id: {job_id})")
+            if "requested_credits" in data:
+                balance = data.get("remaining_total_balance")
+                left = f", {balance} credits left" if balance is not None else ""
+                self.dialog.set_status(
+                    f"Reserved {data['requested_credits']} credits{left}"
+                )
+                self.refresh_credits()
 
             download_url = storage_url(tif_path)
             self.start_polling(download_url)
 
         except Exception as e:
             print(f"[GammaEarth] Exception in submit_job: {e}")
-            self.dialog.set_status(f"Error submitting job: {e}", True)
+            self.dialog.set_status(
+                f"Error submitting job: {redact(str(e), api_key)}", True
+            )
             self.dialog.submit_button.setEnabled(True)
+
+    # ========================================================
+    # Credits
+    # ========================================================
+    def refresh_credits(self, *_, announce_job=False):
+        """Fetch balance + per-job credits for the key in the dialog."""
+        api_key = self.dialog.api_key_input.text().strip()
+        if not api_key or "/" in api_key:
+            self.dialog.set_status("Enter a valid API key to check credits", True)
+            return
+
+        self.dialog.credits_button.setEnabled(False)
+        thread = QThread()
+        worker = CreditsWorker(api_key)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.result.connect(
+            lambda data: self.on_credits(data, announce_job)
+        )
+        worker.error.connect(self.on_credits_error)
+        for signal in (worker.result, worker.error):
+            signal.connect(thread.quit)
+        thread.finished.connect(lambda: self.credits_workers.discard((thread, worker)))
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(
+            lambda: self.dialog.credits_button.setEnabled(True)
+        )
+        self.credits_workers.add((thread, worker))
+        thread.start()
+
+    def on_credits(self, data, announce_job):
+        self.dialog.show_credits(data)
+        if announce_job and self.job_id:
+            for job in data.get("jobs", []):
+                if job.get("job_id") == self.job_id:
+                    if job.get("credits_status") == "COMMITTED":
+                        msg = f"Job used {job.get('credits_used')} credits"
+                    elif job.get("credits_status") == "PENDING":
+                        msg = (
+                            f"{job.get('credits_requested')} credits reserved; "
+                            "final cost is confirmed when the job completes"
+                        )
+                    else:
+                        msg = "No credits charged for this job (released)"
+                    self.dialog.set_status(msg)
+                    break
+
+    def on_credits_error(self, msg):
+        self.dialog.set_status(f"Could not read credits: {msg}", True)
 
     @staticmethod
     def resolve_output_path(data, product):
@@ -773,6 +913,7 @@ class GammaEarthPlugin:
             self.dialog.set_status("Failed to load raster", True)
 
         self.dialog.submit_button.setEnabled(True)
+        self.refresh_credits(announce_job=True)
 
     def on_download_error(self, err):
         self.dialog.set_status(f"Download error: {err}", True)
