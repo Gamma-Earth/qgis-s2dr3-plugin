@@ -41,7 +41,7 @@ Open the plugin from the **Gamma Earth** toolbar icon or the *Plugins > Gamma Ea
    downloaded to the output folder and added to the project. All products of a job
    share one cost. `NDVI` and `IRP` are not available as GeoTIFF yet and download as `TCI`.
 
-Click **Check credits** to see your balance (purchased and bonus) and a table of
+The dialog has two tabs: **New job** and **Credits**. In **Credits**, click **Check credits** to see your balance (purchased and bonus) and a table of
 recent jobs (job ID, PID, date, status and credits used). *Jobs shown* sets how many
 are listed (up to 200). After submitting, the plugin reports how
 many credits were reserved, and once the result is downloaded it reports the final

@@ -1,13 +1,14 @@
 # --- Gamma Earth S2DR3 QGIS Plugin (3 AOI Modes + CDSE Helper) ---
 
 from PyQt5.QtWidgets import (
-    QAction, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+    QAction, QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QCheckBox, QSpinBox,
     QProgressBar, QFileDialog, QRadioButton, QButtonGroup, QMessageBox, QPlainTextEdit,
-    QTableWidget, QTableWidgetItem, QHeaderView
+    QTableWidget, QTableWidgetItem, QHeaderView,
+    QTabWidget, QScrollArea, QGroupBox, QWidget, QFrame
 )
 from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import QObject, QThread, pyqtSignal, QSettings
+from PyQt5.QtCore import QObject, QThread, pyqtSignal, QSettings, Qt
 from qgis.core import (
     QgsProject, QgsRasterLayer, QgsVectorLayer
 )
@@ -50,6 +51,20 @@ def settings_default_range():
 
 def settings_default_max_clouds():
     return QSettings().value("GammaEarth/max_clouds", "100")
+
+
+CDSE_LIMIT = 100
+
+
+def cdse_error_detail(response):
+    """The reason CDSE gives for a rejected request, e.g. ': Limit of ... exceeds ...'."""
+    try:
+        detail = response.json().get("detail")
+        if isinstance(detail, dict):
+            detail = detail.get("message")
+        return f": {detail}" if detail else ""
+    except (ValueError, AttributeError):
+        return ""
 
 
 PRODUCTS = ["MS", "TCI", "NDVI", "IRP"]
@@ -196,10 +211,16 @@ class AOIDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gamma Earth S2DR3 QGIS Plugin")
-        self.setMinimumWidth(560)
-        self.resize(640, 900)
+        self.setMinimumWidth(520)
+        self.setMinimumHeight(420)
+        # Open at a comfortable size but never taller/wider than the screen, so the
+        # Submit button stays reachable and the window can always be resized.
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.resize(min(820, int(screen.width() * 0.9)), min(780, int(screen.height() * 0.85)))
 
-        layout = QVBoxLayout()
+        root = QVBoxLayout()        # API key, tabs, status log, buttons
+        layout = QVBoxLayout()      # "New job" tab
+        credits_layout = QVBoxLayout()   # "Credits" tab
 
         # --- AOI method selection ---
         layout.addWidget(QLabel("<b>AOI input method</b>"))
@@ -273,7 +294,16 @@ class AOIDialog(QDialog):
         cdse_row.addWidget(self.cdse_cloud)
         layout.addLayout(cdse_row)
 
-        self.cdse_button = QPushButton("Check Sentinel-2 dates in CDSE")
+        self.cdse_button = QPushButton("Check Sentinel-2 dates in CDSE  \u25B6")
+        self.cdse_button.setCursor(Qt.PointingHandCursor)
+        self.cdse_button.setMinimumHeight(30)
+        self.cdse_button.setStyleSheet(
+            "QPushButton { background-color: #1565c0; color: white; font-weight: bold;"
+            " border: 1px solid #0d47a1; border-radius: 4px; padding: 5px 12px; }"
+            "QPushButton:hover { background-color: #1976d2; }"
+            "QPushButton:pressed { background-color: #0d47a1; }"
+            "QPushButton:disabled { background-color: #9e9e9e; border-color: #757575; }"
+        )
         layout.addWidget(self.cdse_button)
 
         # --- Gamma Earth date field ---
@@ -301,8 +331,8 @@ class AOIDialog(QDialog):
         settings = QSettings()
         self.api_key_input = QLineEdit(settings.value("GammaEarth/api_key", ""))
         self.api_key_input.setEchoMode(QLineEdit.Password)
-        layout.addWidget(QLabel("API key"))
-        layout.addWidget(self.api_key_input)
+        root.addWidget(QLabel("API key"))
+        root.addWidget(self.api_key_input)
 
         # --- Credits ---
         self.credits_label = QLabel("Credits: not checked")
@@ -316,7 +346,7 @@ class AOIDialog(QDialog):
         self.jobs_limit_input.setToolTip("How many of your latest jobs to list (1-%d)." % MAX_JOBS_LIMIT)
         credits_row.addWidget(self.jobs_limit_input)
         credits_row.addWidget(self.credits_button)
-        layout.addLayout(credits_row)
+        credits_layout.addLayout(credits_row)
 
         self.jobs_table = QTableWidget(0, 5)
         self.jobs_table.setHorizontalHeaderLabels(
@@ -325,18 +355,27 @@ class AOIDialog(QDialog):
         self.jobs_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.jobs_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.jobs_table.verticalHeader().setVisible(False)
+        self.jobs_table.setTextElideMode(Qt.ElideNone)
+        self.jobs_table.setAlternatingRowColors(True)
         header = self.jobs_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        self.jobs_table.setMinimumHeight(280)   # about 10 rows; grows with the dialog
+        header.setStretchLastSection(True)
         self.jobs_table.setVisible(False)
-        layout.addWidget(self.jobs_table, 2)
+        credits_layout.addWidget(self.jobs_table, 1)
+
+        # Shown until the first "Check credits" returns jobs.
+        self.jobs_hint = QLabel(
+            "<i>Enter your API key and click <b>Check credits</b> to list your latest jobs.</i>"
+        )
+        self.jobs_hint.setWordWrap(True)
+        self.jobs_hint.setAlignment(Qt.AlignTop)
+        credits_layout.addWidget(self.jobs_hint)
 
         # --- Products (one or more) ---
-        layout.addWidget(QLabel("Products"))
+        products_box = QGroupBox("Products")
         self.product_checks = {}
         products_row = QHBoxLayout()
+        products_box.setLayout(products_row)
         selected = settings_default_products()
         for product in PRODUCTS:
             box = QCheckBox(product)
@@ -344,7 +383,7 @@ class AOIDialog(QDialog):
             self.product_checks[product] = box
             products_row.addWidget(box)
         products_row.addStretch(1)
-        layout.addLayout(products_row)
+        layout.addWidget(products_box)
 
         # --- Output folder ---
         layout.addWidget(QLabel("Output folder"))
@@ -357,33 +396,52 @@ class AOIDialog(QDialog):
         row.addWidget(self.folder_browse)
         layout.addLayout(row)
 
+        layout.addStretch(1)
+
+        # --- Tabs: the form scrolls on small screens; credits get a roomy tab ---
+        form_widget = QWidget()
+        form_widget.setLayout(layout)
+        form_scroll = QScrollArea()
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setFrameShape(QFrame.NoFrame)
+        form_scroll.setWidget(form_widget)
+
+        credits_widget = QWidget()
+        credits_widget.setLayout(credits_layout)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(form_scroll, "New job")
+        self.tabs.addTab(credits_widget, "Credits")
+        root.addWidget(self.tabs, 1)
+
         # --- Status log (scrollable, selectable) ---
         self.status_edit = QPlainTextEdit()
         self.status_edit.setReadOnly(True)
-        self.status_edit.setMinimumHeight(100)
+        self.status_edit.setMinimumHeight(70)
+        self.status_edit.setMaximumHeight(110)
         self.status_edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        layout.addWidget(self.status_edit, 1)
+        root.addWidget(self.status_edit)
 
         # --- Progress bar ---
         self.progress = QProgressBar()
         self.progress.setVisible(False)
-        layout.addWidget(self.progress)
+        root.addWidget(self.progress)
 
         # --- Gamma Earth branding (small marketing text) ---
         self.brand_label = QLabel(
             "<small><i>Gamma Earth S2DR3 – Super-resolution for Sentinel-2. "
             "Requires a Gamma Earth API key and Data Allowance. Learn more at https://gamma.earth</i></small>"
         )
-        layout.addWidget(self.brand_label)
+        root.addWidget(self.brand_label)
 
         # --- Buttons ---
         self.submit_button = QPushButton("Submit")
         self.close_button = QPushButton("Close")
         self.close_button.clicked.connect(self.close)
-        layout.addWidget(self.submit_button)
-        layout.addWidget(self.close_button)
+        root.addWidget(self.submit_button)
+        root.addWidget(self.close_button)
 
-        self.setLayout(layout)
+        self.setLayout(root)
 
         # AOI mode visibility
         self.aoi_group.buttonClicked.connect(self.update_visibility)
@@ -458,6 +516,8 @@ class AOIDialog(QDialog):
             for col, value in enumerate(values):
                 self.jobs_table.setItem(row, col, QTableWidgetItem(value))
         self.jobs_table.setVisible(bool(jobs))
+        self.jobs_hint.setText("<i>No jobs yet for this API key.</i>")
+        self.jobs_hint.setVisible(not jobs)
 
     def set_progress(self, v: int):
         self.progress.setVisible(True)
@@ -1122,14 +1182,14 @@ class GammaEarthPlugin:
         params = {
             "collections": "sentinel-2-l2a",
             "bbox": f"{minx},{miny},{maxx},{maxy}",
-            "limit": 1000,  # ask CDSE for up to 1000 scenes instead of the default 10
+            "limit": CDSE_LIMIT,  # CDSE rejects limit > 100 for sentinel-2-l2a (HTTP 400)
         }
 
         # Date range filter
         if from_date or to_date:
-            start = from_date if from_date else ".."
-            end = to_date if to_date else ".."
-            params["datetime"] = f"{start}T00:00:00Z/{end}T23:59:59Z"
+            start = f"{from_date}T00:00:00Z" if from_date else ".."
+            end = f"{to_date}T23:59:59Z" if to_date else ".."
+            params["datetime"] = f"{start}/{end}"
 
         # Cloud filter (CQL2-text)
         if max_cloud is not None:
@@ -1151,7 +1211,7 @@ class GammaEarthPlugin:
 
             if resp.status_code != 200:
                 self.dialog.set_status(
-                    f"CDSE STAC error: HTTP {resp.status_code}",
+                    f"CDSE STAC error: HTTP {resp.status_code}{cdse_error_detail(resp)}",
                     True,
                     clear=False,
                 )
@@ -1180,6 +1240,8 @@ class GammaEarthPlugin:
                 f"CDSE Sentinel-2 L2A scenes found: {len(features)} "
                 f"(max_cloud={max_cloud if max_cloud is not None else 'ANY'}%)"
             )
+            if len(features) >= CDSE_LIMIT:
+                header += f" - first {CDSE_LIMIT} shown, narrow the dates to see all"
             lines = [header, "date        | cloud% | id"]
 
             for feat in features:
