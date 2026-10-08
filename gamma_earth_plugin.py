@@ -2,7 +2,7 @@
 
 from PyQt5.QtWidgets import (
     QAction, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QComboBox,
+    QLineEdit, QPushButton, QCheckBox, QSpinBox,
     QProgressBar, QFileDialog, QRadioButton, QButtonGroup, QMessageBox, QPlainTextEdit,
     QTableWidget, QTableWidgetItem, QHeaderView
 )
@@ -46,6 +46,52 @@ def redact(text, api_key):
 
 def settings_default_range():
     return QSettings().value("GammaEarth/date_range", "7")
+
+
+def settings_default_max_clouds():
+    return QSettings().value("GammaEarth/max_clouds", "100")
+
+
+PRODUCTS = ["MS", "TCI", "NDVI", "IRP"]
+DEFAULT_JOBS_LIMIT = 50
+MAX_JOBS_LIMIT = 200
+
+
+def settings_default_products():
+    """Products ticked last time (QSettings stores a single value as a plain string)."""
+    saved = QSettings().value("GammaEarth/products", ["MS"])
+    if isinstance(saved, str):
+        saved = [saved]
+    return [p for p in (saved or []) if p in PRODUCTS] or ["MS"]
+
+
+def settings_default_jobs_limit():
+    try:
+        return max(1, min(int(QSettings().value("GammaEarth/jobs_limit", DEFAULT_JOBS_LIMIT)), MAX_JOBS_LIMIT))
+    except (TypeError, ValueError):
+        return DEFAULT_JOBS_LIMIT
+
+
+def error_text(response):
+    """The API's {"error": "..."} message, or the raw body."""
+    try:
+        return response.json().get("error") or response.text
+    except ValueError:
+        return response.text
+
+
+def effective_products(selected):
+    """Products to download for the ticked ones. NDVI and IRP are not available
+    as GeoTIFFs yet, so they fall back to TCI (downloaded once even if TCI is
+    also ticked). Returns (products, fallback_used)."""
+    products, fallback = [], False
+    for product in selected:
+        if product in ("NDVI", "IRP"):
+            fallback = True
+            product = "TCI"
+        if product not in products:
+            products.append(product)
+    return products, fallback
 
 
 # ============================================================
@@ -119,13 +165,18 @@ class CreditsWorker(QObject):
     result = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, api_key):
+    def __init__(self, api_key, limit=DEFAULT_JOBS_LIMIT):
         super().__init__()
         self.api_key = api_key
+        self.limit = limit
 
     def run(self):
         try:
-            r = requests.get(f"{api_base_url()}/{self.api_key}", timeout=30)
+            r = requests.get(
+                f"{api_base_url()}/{self.api_key}",
+                params={"limit": self.limit},
+                timeout=30,
+            )
             if r.status_code != 200:
                 try:
                     msg = r.json().get("error", r.text)
@@ -145,7 +196,8 @@ class AOIDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gamma Earth S2DR3 QGIS Plugin")
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(560)
+        self.resize(640, 900)
 
         layout = QVBoxLayout()
 
@@ -231,7 +283,19 @@ class AOIDialog(QDialog):
 
         layout.addWidget(QLabel("Date range (days)"))
         self.date_range_input = QLineEdit(settings_default_range())
+        self.date_range_input.setToolTip(
+            "How many days before the date to look for an image. "
+            "Images up to 3 days after the date are also considered."
+        )
         layout.addWidget(self.date_range_input)
+
+        layout.addWidget(QLabel("Max cloud cover (%)"))
+        self.max_clouds_input = QLineEdit(settings_default_max_clouds())
+        self.max_clouds_input.setToolTip(
+            "Only images with at most this cloud cover over the AOI are used "
+            "(0-100). If none qualifies, no job is created and no credits are used."
+        )
+        layout.addWidget(self.max_clouds_input)
 
         # --- API key & product type ---
         settings = QSettings()
@@ -245,25 +309,42 @@ class AOIDialog(QDialog):
         self.credits_button = QPushButton("Check credits")
         credits_row = QHBoxLayout()
         credits_row.addWidget(self.credits_label, 1)
+        credits_row.addWidget(QLabel("Jobs shown"))
+        self.jobs_limit_input = QSpinBox()
+        self.jobs_limit_input.setRange(1, MAX_JOBS_LIMIT)
+        self.jobs_limit_input.setValue(settings_default_jobs_limit())
+        self.jobs_limit_input.setToolTip("How many of your latest jobs to list (1-%d)." % MAX_JOBS_LIMIT)
+        credits_row.addWidget(self.jobs_limit_input)
         credits_row.addWidget(self.credits_button)
         layout.addLayout(credits_row)
 
-        self.jobs_table = QTableWidget(0, 4)
+        self.jobs_table = QTableWidget(0, 5)
         self.jobs_table.setHorizontalHeaderLabels(
-            ["Job ID", "Date", "Status", "Credits used"]
+            ["Job ID", "PID", "Date", "Status", "Credits used"]
         )
         self.jobs_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.jobs_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.jobs_table.verticalHeader().setVisible(False)
-        self.jobs_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.jobs_table.setMaximumHeight(140)
+        header = self.jobs_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        self.jobs_table.setMinimumHeight(280)   # about 10 rows; grows with the dialog
         self.jobs_table.setVisible(False)
-        layout.addWidget(self.jobs_table)
+        layout.addWidget(self.jobs_table, 2)
 
-        self.product_select = QComboBox()
-        self.product_select.addItems(["MS", "TCI", "NDVI", "IRP"])
-        layout.addWidget(QLabel("Product type"))
-        layout.addWidget(self.product_select)
+        # --- Products (one or more) ---
+        layout.addWidget(QLabel("Products"))
+        self.product_checks = {}
+        products_row = QHBoxLayout()
+        selected = settings_default_products()
+        for product in PRODUCTS:
+            box = QCheckBox(product)
+            box.setChecked(product in selected)
+            self.product_checks[product] = box
+            products_row.addWidget(box)
+        products_row.addStretch(1)
+        layout.addLayout(products_row)
 
         # --- Output folder ---
         layout.addWidget(QLabel("Output folder"))
@@ -281,7 +362,7 @@ class AOIDialog(QDialog):
         self.status_edit.setReadOnly(True)
         self.status_edit.setMinimumHeight(100)
         self.status_edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        layout.addWidget(self.status_edit)
+        layout.addWidget(self.status_edit, 1)
 
         # --- Progress bar ---
         self.progress = QProgressBar()
@@ -365,8 +446,11 @@ class AOIDialog(QDialog):
                 used_text = f"{job.get('credits_requested', '?')} (reserved)"
             else:
                 used_text = str(used)
+            if status == "RELEASED" and job.get("release_reason") == "PID_ALREADY_PROCESSED":
+                used_text = "0 (already processed)"
             values = [
                 job.get("job_id", ""),
+                job.get("pid") or "",
                 (job.get("reserved_at") or "")[:10],
                 status.capitalize(),
                 used_text,
@@ -405,8 +489,10 @@ class AOIDialog(QDialog):
             "geojson": self.geojson_path.text(),
             "date": self.date_input.text(),
             "date_range": self.date_range_input.text(),
+            "max_clouds": self.max_clouds_input.text(),
             "api_key": self.api_key_input.text(),
-            "product": self.product_select.currentText(),
+            "products": [p for p, box in self.product_checks.items() if box.isChecked()],
+            "jobs_limit": self.jobs_limit_input.value(),
             "output_folder": self.folder_input.text(),
             "cdse_from": self.cdse_from.text(),
             "cdse_to": self.cdse_to.text(),
@@ -428,6 +514,7 @@ class GammaEarthPlugin:
         self.poll_worker = None
         self.download_thread = None
         self.download_worker = None
+        self.pending_urls = []
 
     def initGui(self):
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
@@ -481,8 +568,25 @@ class GammaEarthPlugin:
             )
             return
 
+        max_clouds = d["max_clouds"].strip()
+        try:
+            max_clouds_value = float(max_clouds)
+        except ValueError:
+            max_clouds_value = -1
+        if not 0 <= max_clouds_value <= 100:
+            self.dialog.set_status(
+                "Max cloud cover must be a number between 0 and 100", True, clear=True
+            )
+            return
+
+        if not d["products"]:
+            self.dialog.set_status("Tick at least one product", True, clear=True)
+            return
+
         QSettings().setValue("GammaEarth/api_key", api_key)
         QSettings().setValue("GammaEarth/date_range", date_range)
+        QSettings().setValue("GammaEarth/max_clouds", max_clouds)
+        QSettings().setValue("GammaEarth/products", d["products"])
         QSettings().setValue("GammaEarth/last_output_folder", d["output_folder"])
         self.output_folder = d["output_folder"]
 
@@ -492,7 +596,7 @@ class GammaEarthPlugin:
 
         self.dialog.set_status("Submitting Gamma Earth job…", error=False, clear=False)
         self.dialog.submit_button.setEnabled(False)
-        self.submit_job(api_key, aoi, d["date"], date_range, d["product"])
+        self.submit_job(api_key, aoi, d["date"], date_range, max_clouds, d["products"])
 
     # ========================================================
     def update_selection_feedback(self):
@@ -717,13 +821,24 @@ class GammaEarthPlugin:
         return None
 
     # ========================================================
-    def submit_job(self, api_key, aoi, date, date_range, product):
+    def submit_job(self, api_key, aoi, date, date_range, max_clouds, products):
         url = f"{api_base_url()}/{api_key}"
-        payload = {"date": date, "date_range": date_range, "aoi": aoi}
+        payload = {
+            "date": date,
+            "date_range": date_range,
+            "max_clouds": max_clouds,
+            "aoi": aoi,
+        }
 
         try:
             r = requests.post(url, json=payload, timeout=60)
             print(f"[GammaEarth] Submit response: {r.status_code} — {r.text}")
+            if r.status_code in (400, 404):
+                # 404: no image meets the date range and cloud limit; 400: invalid input.
+                # Nothing was reserved, so tell the user plainly.
+                self.dialog.set_status(error_text(r), True)
+                self.dialog.submit_button.setEnabled(True)
+                return
             if r.status_code != 200:
                 self.dialog.set_status(
                     f"Server error ({r.status_code}): {r.text}", True
@@ -733,30 +848,38 @@ class GammaEarthPlugin:
 
             data = r.json()
             print("[GammaEarth] Response JSON keys:", list(data.keys()))
-
-            if product in ("NDVI", "IRP"):
-                self.dialog.set_status(
-                    f"{product} not yet available as direct GeoTIFF; downloading TCI instead.",
-                    error=False
-                )
-                product = "TCI"
-            elif product not in ("MS", "TCI"):
-                self.dialog.set_status(f"Unknown product type: {product}", True)
+            if data.get("error"):
+                self.dialog.set_status(str(data["error"]), True)
                 self.dialog.submit_button.setEnabled(True)
                 return
 
-            tif_path = self.resolve_output_path(data, product)
-            if not tif_path:
+            to_download, fallback = effective_products(products)
+            if fallback:
                 self.dialog.set_status(
-                    f"No output path for product '{product}' in server response", True
+                    "NDVI and IRP are not yet available as direct GeoTIFF; "
+                    "downloading TCI instead.",
+                    error=False,
                 )
-                self.dialog.submit_button.setEnabled(True)
-                return
+
+            urls = []
+            for product in to_download:
+                tif_path = self.resolve_output_path(data, product)
+                if not tif_path:
+                    self.dialog.set_status(
+                        f"No output path for product '{product}' in server response", True
+                    )
+                    self.dialog.submit_button.setEnabled(True)
+                    return
+                urls.append(storage_url(tif_path))
 
             job_id = data.get("job_id")
             self.job_id = job_id
             if job_id:
                 self.dialog.set_status(f"Job submitted (job_id: {job_id})")
+            if data.get("date"):
+                clouds = data.get("cloud_cover")
+                cloud_text = f", {clouds}% cloud cover" if clouds is not None else ""
+                self.dialog.set_status(f"Image date: {data['date']}{cloud_text}")
             if "requested_credits" in data:
                 balance = data.get("remaining_total_balance")
                 left = f", {balance} credits left" if balance is not None else ""
@@ -764,9 +887,13 @@ class GammaEarthPlugin:
                     f"Reserved {data['requested_credits']} credits{left}"
                 )
                 self.refresh_credits()
+            elif data.get("credits_charged") == 0:
+                self.dialog.set_status(
+                    data.get("credits_note") or "No credits charged for this job"
+                )
 
-            download_url = storage_url(tif_path)
-            self.start_polling(download_url)
+            self.pending_urls = urls
+            self.process_next_product()
 
         except Exception as e:
             print(f"[GammaEarth] Exception in submit_job: {e}")
@@ -785,9 +912,11 @@ class GammaEarthPlugin:
             self.dialog.set_status("Enter a valid API key to check credits", True)
             return
 
+        limit = self.dialog.jobs_limit_input.value()
+        QSettings().setValue("GammaEarth/jobs_limit", limit)
         self.dialog.credits_button.setEnabled(False)
         thread = QThread()
-        worker = CreditsWorker(api_key)
+        worker = CreditsWorker(api_key, limit)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.result.connect(
@@ -815,6 +944,11 @@ class GammaEarthPlugin:
                         msg = (
                             f"{job.get('credits_requested')} credits reserved; "
                             "final cost is confirmed when the job completes"
+                        )
+                    elif job.get("release_reason") == "PID_ALREADY_PROCESSED":
+                        msg = (
+                            "No credits charged: this area and date were already "
+                            "processed with your API key"
                         )
                     else:
                         msg = "No credits charged for this job (released)"
@@ -844,6 +978,15 @@ class GammaEarthPlugin:
         return None
 
     # ========================================================
+    def process_next_product(self):
+        """Poll and download the next ticked product, one at a time. When none
+        are left the dialog is re-enabled and the credits table refreshed."""
+        if not self.pending_urls:
+            self.dialog.submit_button.setEnabled(True)
+            self.refresh_credits(announce_job=True)
+            return
+        self.start_polling(self.pending_urls.pop(0))
+
     def start_polling(self, url):
         self.dialog.set_status("Waiting for product to be available…")
         self.poll_thread = QThread()
@@ -877,11 +1020,11 @@ class GammaEarthPlugin:
         self.dialog.set_status(
             f"File not ready after 5 minutes{job}. Manual download:\n{url}", True
         )
-        self.dialog.submit_button.setEnabled(True)
+        self.process_next_product()
 
     def on_poll_error(self, msg):
         self.dialog.set_status(f"Polling error: {msg}", True)
-        self.dialog.submit_button.setEnabled(True)
+        self.process_next_product()
 
     # ========================================================
     def download(self, url):
@@ -910,7 +1053,7 @@ class GammaEarthPlugin:
     def on_download_done(self, path):
         if not os.path.exists(path):
             self.dialog.set_status("Download failed: file missing", True)
-            self.dialog.submit_button.setEnabled(True)
+            self.process_next_product()
             return
 
         raster = QgsRasterLayer(path, os.path.basename(path))
@@ -920,12 +1063,11 @@ class GammaEarthPlugin:
         else:
             self.dialog.set_status("Failed to load raster", True)
 
-        self.dialog.submit_button.setEnabled(True)
-        self.refresh_credits(announce_job=True)
+        self.process_next_product()
 
     def on_download_error(self, err):
         self.dialog.set_status(f"Download error: {err}", True)
-        self.dialog.submit_button.setEnabled(True)
+        self.process_next_product()
 
      # ========================================================
     # Copernicus CDSE helper

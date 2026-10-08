@@ -31,17 +31,25 @@ Open the plugin from the **Gamma Earth** toolbar icon or the *Plugins > Gamma Ea
 2. **Find a date (optional)** - enter a date range and maximum cloud cover, then
    click *Check Sentinel-2 dates in CDSE* to list available acquisitions from the
    Copernicus Data Space STAC catalogue.
-3. Enter the **Date** (`YYYY-MM-DD`), the **Date range** (days, default 7), your **API key**, the **Product type**
-   (`MS`, `TCI`, `NDVI` or `IRP`) and an **Output folder**.
-4. Click **Submit**. Progress is shown in the status log; the result is
-   downloaded to the output folder and added to the project.
+3. Enter the **Date** (`YYYY-MM-DD`), the **Date range** (days before the date, default 7),
+   the **Max cloud cover** (%, default 100), your **API key**, the **Products** to download
+   (tick one or more of `MS`, `TCI`, `NDVI`, `IRP`) and an **Output folder**.
+   Gamma Earth uses the image closest to the date that was taken between *date - date range*
+   and 3 days after the date, and whose cloud cover over your AOI is at most the maximum.
+   If no image qualifies, the plugin shows why and no credits are used.
+4. Click **Submit**. Progress is shown in the status log; each ticked product is
+   downloaded to the output folder and added to the project. All products of a job
+   share one cost. `NDVI` and `IRP` are not available as GeoTIFF yet and download as `TCI`.
 
 Click **Check credits** to see your balance (purchased and bonus) and a table of
-recent jobs with the credits each one used. After submitting, the plugin reports how
+recent jobs (job ID, PID, date, status and credits used). *Jobs shown* sets how many
+are listed (up to 200). After submitting, the plugin reports how
 many credits were reserved, and once the result is downloaded it reports the final
 cost of the job. Credits reserved for a job that fails are returned to your balance.
+Processing the same area and image date again with the same API key is free: no credits
+are used, or they are returned when the repeat job completes.
 
-The API key, date range and output folder are remembered between sessions.
+The API key, date range, max cloud cover, products, jobs shown and output folder are remembered between sessions.
 
 ## Support
 
