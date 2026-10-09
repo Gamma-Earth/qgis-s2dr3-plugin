@@ -940,9 +940,10 @@ class GammaEarthPlugin:
         self.dialog.set_busy(None)
         try:
             print(f"[GammaEarth] Submit response: {r.status_code} — {r.text}")
-            if r.status_code in (400, 404):
-                # 404: no image meets the date range and cloud limit; 400: invalid input.
-                # Nothing was reserved, so tell the user plainly.
+            if r.status_code in (400, 401, 402, 404, 503):
+                # 404: no image meets the date range and cloud limit; 400: invalid input;
+                # 401: missing/unknown API key; 402: not enough credits; 503: credit
+                # reservation failed. Nothing was reserved, so tell the user plainly.
                 self.dialog.set_status(error_text(r), True)
                 self.dialog.submit_button.setEnabled(True)
                 return
