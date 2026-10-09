@@ -174,6 +174,26 @@ class PollWorker(QObject):
 
 
 # ============================================================
+# Request Worker (any HTTP call in a background thread so QGIS never freezes)
+# ============================================================
+class RequestWorker(QObject):
+    result = pyqtSignal(object)   # the requests.Response
+    error = pyqtSignal(str)
+
+    def __init__(self, method, url, **kwargs):
+        super().__init__()
+        self.method = method
+        self.url = url
+        self.kwargs = kwargs
+
+    def run(self):
+        try:
+            self.result.emit(requests.request(self.method, self.url, **self.kwargs))
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+# ============================================================
 # Credits Worker (GET <API_BASE_URL>/<api_key> in the background)
 # ============================================================
 class CreditsWorker(QObject):
@@ -520,8 +540,24 @@ class AOIDialog(QDialog):
         self.jobs_hint.setVisible(not jobs)
 
     def set_progress(self, v: int):
+        self.progress.setRange(0, 100)
         self.progress.setVisible(True)
         self.progress.setValue(v)
+
+    def set_busy(self, message=None):
+        """Show an animated 'working' bar and lock the CDSE button while a request is
+        in flight; set_busy(None) restores it. The Submit button is managed by the
+        submit flow itself (it stays locked until the downloads finish)."""
+        busy = message is not None
+        if busy:
+            self.set_status(message)
+            self.progress.setRange(0, 0)          # indeterminate / animated
+            self.progress.setVisible(True)
+        else:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
+            self.progress.setVisible(False)
+        self.cdse_button.setEnabled(not busy)
 
     def set_status(self, msg: str, error: bool = False, clear: bool = False):
         """
@@ -571,6 +607,7 @@ class GammaEarthPlugin:
         self.poll_thread = None
         self.job_id = None
         self.credits_workers = set()
+        self.request_workers = set()
         self.poll_worker = None
         self.download_thread = None
         self.download_worker = None
@@ -654,7 +691,6 @@ class GammaEarthPlugin:
         if not aoi:
             return
 
-        self.dialog.set_status("Submitting Gamma Earth job…", error=False, clear=False)
         self.dialog.submit_button.setEnabled(False)
         self.submit_job(api_key, aoi, d["date"], date_range, max_clouds, d["products"])
 
@@ -890,8 +926,19 @@ class GammaEarthPlugin:
             "aoi": aoi,
         }
 
+        self.dialog.set_busy(
+            "Submitting Gamma Earth job… selecting the image can take up to a minute"
+        )
+        self.run_request(
+            "POST", url,
+            lambda r: self.on_submit_response(api_key, products, r),
+            lambda msg: self.on_submit_error(api_key, msg),
+            json=payload, timeout=90,
+        )
+
+    def on_submit_response(self, api_key, products, r):
+        self.dialog.set_busy(None)
         try:
-            r = requests.post(url, json=payload, timeout=60)
             print(f"[GammaEarth] Submit response: {r.status_code} — {r.text}")
             if r.status_code in (400, 404):
                 # 404: no image meets the date range and cloud limit; 400: invalid input.
@@ -961,6 +1008,25 @@ class GammaEarthPlugin:
                 f"Error submitting job: {redact(str(e), api_key)}", True
             )
             self.dialog.submit_button.setEnabled(True)
+
+    def on_submit_error(self, api_key, msg):
+        self.dialog.set_busy(None)
+        self.dialog.set_status(f"Error submitting job: {redact(msg, api_key)}", True)
+
+    def run_request(self, method, url, on_result, on_error, **kwargs):
+        """Run an HTTP request off the UI thread; callbacks run on the UI thread."""
+        thread = QThread()
+        worker = RequestWorker(method, url, **kwargs)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.result.connect(on_result)
+        worker.error.connect(on_error)
+        for signal in (worker.result, worker.error):
+            signal.connect(thread.quit)
+        thread.finished.connect(lambda: self.request_workers.discard((thread, worker)))
+        thread.finished.connect(thread.deleteLater)
+        self.request_workers.add((thread, worker))
+        thread.start()
 
     # ========================================================
     # Credits
@@ -1205,8 +1271,20 @@ class GammaEarthPlugin:
         print(f"[GammaEarth] {debug_line}")
         self.dialog.set_status(debug_line, error=False, clear=True)
 
+        self.dialog.set_busy(debug_line + "\nSearching Copernicus CDSE…")
+        self.run_request(
+            "GET", url,
+            lambda resp: self.on_cdse_response(max_cloud, resp),
+            lambda msg: (
+                self.dialog.set_busy(None),
+                self.dialog.set_status(f"CDSE STAC query failed: {msg}", True, clear=False),
+            ),
+            params=params, timeout=30,
+        )
+
+    def on_cdse_response(self, max_cloud, resp):
+        self.dialog.set_busy(None)
         try:
-            resp = requests.get(url, params=params, timeout=30)
             print(f"[GammaEarth] CDSE STAC URL: {resp.url}")
 
             if resp.status_code != 200:
