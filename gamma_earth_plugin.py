@@ -335,15 +335,18 @@ class AOIDialog(QDialog):
         self.date_range_input = QLineEdit(settings_default_range())
         self.date_range_input.setToolTip(
             "How many days before the date to look for an image. "
-            "Images up to 3 days after the date are also considered."
+            "Images up to 3 days after the date are also considered. "
+            "Without a cloud limit, the clearest image in that period is used."
         )
         layout.addWidget(self.date_range_input)
 
         layout.addWidget(QLabel("Max cloud cover (%)"))
         self.max_clouds_input = QLineEdit(settings_default_max_clouds())
         self.max_clouds_input.setToolTip(
-            "Only images with at most this cloud cover over the AOI are used "
-            "(0-100). If none qualifies, no job is created and no credits are used."
+            "100 = no limit: the clearest image in the date range is used. "
+            "Below 100: only images with at most this cloud cover over the AOI are used, "
+            "and the one closest to the date among them. "
+            "If none qualifies, no job is created and no credits are used."
         )
         layout.addWidget(self.max_clouds_input)
 

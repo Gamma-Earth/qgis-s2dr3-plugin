@@ -34,8 +34,10 @@ Open the plugin from the **Gamma Earth** toolbar icon or the *Plugins > Gamma Ea
 3. Enter the **Date** (`YYYY-MM-DD`), the **Date range** (days before the date, default 7),
    the **Max cloud cover** (%, default 100), your **API key**, the **Products** to download
    (tick one or more of `MS`, `TCI`, `NDVI`, `IRP`) and an **Output folder**.
-   Gamma Earth uses the image closest to the date that was taken between *date - date range*
-   and 3 days after the date, and whose cloud cover over your AOI is at most the maximum.
+   Gamma Earth looks at the images taken between *date - date range* and 3 days after the date.
+   With the default max cloud cover of 100 (no limit) it uses the **clearest** one over your AOI
+   (equally clear: the closest to the date). With a lower max cloud cover it keeps only the images
+   at or under that limit and uses the one **closest to the date**.
    If no image qualifies, the plugin shows why and no credits are used.
 4. Click **Submit**. Progress is shown in the status log; each ticked product is
    downloaded to the output folder and added to the project. All products of a job
