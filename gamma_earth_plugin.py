@@ -30,6 +30,28 @@ def api_base_url():
     return (url or DEFAULT_API_BASE_URL).rstrip("/")
 
 
+def plugin_version():
+    """The version in metadata.txt, e.g. '1.1' ('unknown' if it cannot be read)."""
+    import configparser
+    try:
+        parser = configparser.ConfigParser()
+        parser.read(os.path.join(os.path.dirname(os.path.abspath(__file__)), "metadata.txt"))
+        return parser.get("general", "version").strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def client_id():
+    """How this client identifies itself to the Gamma Earth API, e.g. 'qgis-plugin/1.1'. It is
+    stored with each job so plugin usage can be told apart from direct API usage."""
+    return f"qgis-plugin/{plugin_version()}"
+
+
+def api_headers():
+    """Headers for requests to the Gamma Earth API (not for CDSE or the downloads)."""
+    return {"User-Agent": f"GammaEarthQGIS/{plugin_version()}"}
+
+
 def storage_url(path):
     """Convert an s3:// or gs:// path into a public HTTPS URL."""
     if path.startswith("s3://"):
@@ -210,6 +232,7 @@ class CreditsWorker(QObject):
             r = requests.get(
                 f"{api_base_url()}/{self.api_key}",
                 params={"limit": self.limit},
+                headers=api_headers(),
                 timeout=30,
             )
             if r.status_code != 200:
@@ -927,6 +950,7 @@ class GammaEarthPlugin:
             "date_range": date_range,
             "max_clouds": max_clouds,
             "aoi": aoi,
+            "client": client_id(),
         }
 
         self.dialog.set_busy(
@@ -936,7 +960,7 @@ class GammaEarthPlugin:
             "POST", url,
             lambda r: self.on_submit_response(api_key, products, r),
             lambda msg: self.on_submit_error(api_key, msg),
-            json=payload, timeout=90,
+            json=payload, headers=api_headers(), timeout=90,
         )
 
     def on_submit_response(self, api_key, products, r):
