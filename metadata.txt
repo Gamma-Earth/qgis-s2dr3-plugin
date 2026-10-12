@@ -8,3 +8,11 @@ email=info@gamma.earth
 homepage=https://gamma.earth
 repository=https://github.com/Gamma-Earth/gamma-earth-plugin
 tracker=https://github.com/Gamma-Earth/gamma-earth-plugin/issues
+changelog=1.1
+    - Max cloud cover field: no limit (default 100) uses the clearest image in the date range, a lower value uses the closest image under that limit
+    - Several products can be ticked and are downloaded from the same job
+    - New "New job" and "Credits" tabs; the Credits tab lists your latest jobs with their PID (number of jobs is configurable)
+    - Job submission and the Copernicus date search no longer freeze QGIS
+    - Clear messages when no image qualifies, the API key is invalid or credits are insufficient
+    - Fix: Copernicus date search failed with HTTP 400
+    - The plugin identifies itself to the API (qgis-plugin/1.1)
