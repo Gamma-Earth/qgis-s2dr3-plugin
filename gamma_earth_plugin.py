@@ -67,6 +67,16 @@ def redact(text, api_key):
     return text.replace(api_key, "***") if api_key else text
 
 
+def normalize_date(text):
+    """'2024-2-3' or '2024-02-03' -> '2024-02-03'. None if it is not a real date (the Copernicus
+    catalogue rejects dates that are not zero-padded RFC 3339, and the API wants YYYY-MM-DD)."""
+    import datetime
+    try:
+        return datetime.datetime.strptime((text or "").strip(), "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
 def settings_default_range():
     return QSettings().value("GammaEarth/date_range", "7")
 
@@ -684,6 +694,14 @@ class GammaEarthPlugin:
             self.dialog.set_status("Invalid API key", True, clear=True)
             return
 
+        date = normalize_date(d["date"])
+        if not date:
+            self.dialog.set_status(
+                "Date must be a real date written as YYYY-MM-DD, for example 2024-01-31",
+                True, clear=True,
+            )
+            return
+
         date_range = d["date_range"].strip()
         if not date_range.isdigit() or int(date_range) < 1:
             self.dialog.set_status(
@@ -718,7 +736,7 @@ class GammaEarthPlugin:
             return
 
         self.dialog.submit_button.setEnabled(False)
-        self.submit_job(api_key, aoi, d["date"], date_range, max_clouds, d["products"])
+        self.submit_job(api_key, aoi, date, date_range, max_clouds, d["products"])
 
     # ========================================================
     def update_selection_feedback(self):
@@ -1256,8 +1274,17 @@ class GammaEarthPlugin:
             )
             return
 
-        from_date = d["cdse_from"].strip()
-        to_date = d["cdse_to"].strip()
+        from_date, to_date = d["cdse_from"].strip(), d["cdse_to"].strip()
+        for label, value in (("From", from_date), ("To", to_date)):
+            if value and not normalize_date(value):
+                self.dialog.set_status(
+                    f"'{label}' must be a real date written as YYYY-MM-DD, for example 2024-01-31 "
+                    f"(you typed '{value}')",
+                    True, clear=True,
+                )
+                return
+        from_date = normalize_date(from_date) if from_date else ""
+        to_date = normalize_date(to_date) if to_date else ""
         cloud_str = d["cdse_cloud"].strip()
 
         max_cloud = None
