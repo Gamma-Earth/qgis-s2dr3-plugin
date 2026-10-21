@@ -1,24 +1,37 @@
-# Gamma Earth S2DR3 QGIS Plugin
+# Gamma Earth S2DR3 - QGIS plugin
 
-QGIS plugin for 10x super-resolution of Sentinel-2 imagery using the
-[Gamma Earth](https://gamma.earth) S2DR3 API. Define an area of interest,
-pick an acquisition date, and the plugin submits the job, waits for the result,
-downloads the GeoTIFF and loads it into your QGIS project.
+Gamma Earth S2DR3 gives you 10x super-resolution of Sentinel-2 imagery inside QGIS, using
+the [Gamma Earth](https://gamma.earth) S2DR3 service. Define an area of interest, pick an
+acquisition date, and the plugin submits the job, waits for the result, downloads the
+GeoTIFF and loads it into your QGIS project.
 
 ## Requirements
 
-- QGIS 3.0 or later
-- A Gamma Earth **API key** with available Data Allowance (see https://gamma.earth)
+- QGIS 3.34 or later
+- **A Gamma Earth API key and paid credits.** The plugin is only a client for a paid
+  service: every job uses credits, and it does not work without a key. Get a key and
+  credits at <https://gamma.earth>.
 - Internet access (the `requests` Python package is used; it ships with QGIS)
 
 ## Installation
 
-1. Clone or download this repository.
-2. Copy the folder into your QGIS plugins directory, named `gamma_earth_plugin`:
-   - macOS: `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/`
-   - Linux: `~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/`
-   - Windows: `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\`
-3. Restart QGIS and enable **S2DR3** in *Plugins > Manage and Install Plugins*.
+From the QGIS plugin catalogue:
+
+1. In QGIS open *Plugins > Manage and Install Plugins...*
+2. Search for **Gamma Earth S2DR3** in the *All* tab and click *Install Plugin*.
+3. Open the plugin from the **Gamma Earth** toolbar icon or the *Plugins > Gamma Earth* menu.
+
+To install a zip manually (for example a pre-release from the
+[GitHub releases](https://github.com/Gamma-Earth/gamma-earth-plugin/releases)), use
+*Plugins > Manage and Install Plugins... > Install from ZIP*.
+
+## API key
+
+Paste your key into the **API key** field the first time you use the plugin. It is stored in
+the QGIS Authentication Manager (QGIS may ask you to set a master password), not in a
+project file. If the Authentication Manager cannot be used, it is kept in your QGIS
+profile settings instead. A key saved in plain text by plugin version 1.1 or earlier is
+moved to the Authentication Manager automatically.
 
 ## Usage
 
@@ -53,10 +66,27 @@ are used, or they are returned when the repeat job completes.
 
 The API key, date range, max cloud cover, products, jobs shown and output folder are remembered between sessions.
 
-## Support
+## Data sent to external services
 
-Report issues at https://github.com/Gamma-Earth/gamma-earth-plugin/issues
-or contact info@gamma.earth.
+The plugin sends data only when you click a button, and nothing else (no telemetry,
+no analytics):
 
-For a development setup (symlinking the repo into QGIS) see
-[DEVELOPMENT.md](DEVELOPMENT.md).
+| Action | Sent to | Data |
+|---|---|---|
+| Submit a job | `api.gamma.earth` | your API key, the area of interest as GeoJSON, the date, date range and maximum cloud cover, and a client identifier (`qgis-plugin/<version>`) |
+| Check credits | `api.gamma.earth` | your API key and the number of jobs to list |
+| Check Sentinel-2 dates | `stac.dataspace.copernicus.eu` (Copernicus Data Space) | the bounding box of the area, the date range and the cloud limit; no key |
+| Download results | the storage URL returned by the service | a plain download request |
+
+Privacy policy and terms: <https://demo.gamma.earth/legal/index.html>
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+## Support and issues
+
+Report issues at <https://github.com/Gamma-Earth/gamma-earth-plugin/issues>
+or contact info@gamma.earth. See the [CHANGELOG](CHANGELOG.md) for release notes.
+
+For development, packaging and releasing see [DEVELOPMENT.md](DEVELOPMENT.md).
