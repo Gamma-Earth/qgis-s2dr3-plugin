@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.1] - 2026-10-21
+## [1.1.0] - 2026-10-21
 
 - First release on the official QGIS plugin repository.
 - The API key is now stored in the QGIS Authentication Manager (QGIS settings are used only if it is unavailable). A key saved by an earlier version is migrated automatically.

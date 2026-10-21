@@ -6,7 +6,7 @@ about=Gamma Earth S2DR3 sends a Sentinel-2 area of interest to the Gamma Earth S
     <b>This plugin needs a Gamma Earth API key and paid credits</b> (each job uses credits); the plugin does not work without them. Get a key at https://gamma.earth. The key is stored in the QGIS Authentication Manager.
     <b>Data sent:</b> when you submit a job the plugin sends your API key, the area of interest (GeoJSON geometry), the date, date range and maximum cloud cover to https://api.gamma.earth. The optional "Check Sentinel-2 dates" search sends the area's bounding box, date range and cloud limit to the Copernicus Data Space STAC catalogue (https://stac.dataspace.copernicus.eu). Results are downloaded from the storage URL returned by the service. No other data is sent and there is no telemetry.
     Privacy policy and terms: https://demo.gamma.earth/legal/index.html
-version=1.1
+version=1.1.0
 author=Gamma Earth
 email=info@gamma.earth
 homepage=https://gamma.earth
