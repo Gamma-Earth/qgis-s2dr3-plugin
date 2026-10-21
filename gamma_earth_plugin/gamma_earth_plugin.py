@@ -1,16 +1,19 @@
-# --- Gamma Earth S2DR3 QGIS Plugin (3 AOI Modes + CDSE Helper) ---
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2025-2026 Gamma Earth
+"""Gamma Earth S2DR3: 10x super-resolution of Sentinel-2 images from QGIS."""
 
-from PyQt5.QtWidgets import (
+from qgis.PyQt.QtWidgets import (
     QAction, QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QCheckBox, QSpinBox,
     QProgressBar, QFileDialog, QRadioButton, QButtonGroup, QMessageBox, QPlainTextEdit,
     QTableWidget, QTableWidgetItem, QHeaderView,
     QTabWidget, QScrollArea, QGroupBox, QWidget, QFrame
 )
-from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import QObject, QThread, pyqtSignal, QSettings, Qt
+from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal, Qt
 from qgis.core import (
-    QgsProject, QgsRasterLayer, QgsVectorLayer
+    Qgis, QgsApplication, QgsAuthMethodConfig, QgsMessageLog, QgsProject,
+    QgsRasterLayer, QgsSettings, QgsVectorLayer
 )
 import requests
 import os
@@ -23,11 +26,8 @@ DEFAULT_API_BASE_URL = "https://api.gamma.earth/jobs"
 
 
 def api_base_url():
-    """Production URL unless overridden (e.g. for testing) by the
-    GAMMA_EARTH_API_URL environment variable or the QGIS setting
-    GammaEarth/api_url."""
-    url = os.environ.get("GAMMA_EARTH_API_URL") or QSettings().value("GammaEarth/api_url", "")
-    return (url or DEFAULT_API_BASE_URL).rstrip("/")
+    """The Gamma Earth jobs API endpoint."""
+    return DEFAULT_API_BASE_URL
 
 
 def plugin_version():
@@ -67,6 +67,80 @@ def redact(text, api_key):
     return text.replace(api_key, "***") if api_key else text
 
 
+LOG_TAG = "Gamma Earth"
+PRIVACY_URL = "https://demo.gamma.earth/legal/index.html"
+GET_KEY_URL = "https://gamma.earth"
+
+LEGACY_KEY_SETTING = "GammaEarth/api_key"       # plain-text key stored by plugin <= 1.1
+AUTH_CFG_ID_SETTING = "GammaEarth/auth_config_id"  # id of the Authentication Manager entry
+AUTH_CFG_NAME = "Gamma Earth API key"
+
+NO_KEY_MESSAGE = (
+    "No API key. Enter your Gamma Earth API key (it is saved in the QGIS Authentication "
+    f"Manager). Get a key and credits at {GET_KEY_URL}"
+)
+
+
+def _auth_manager():
+    """The QGIS Authentication Manager, unlocked (may ask the user for the master
+    password), or None when it is disabled or the user did not unlock it."""
+    manager = QgsApplication.authManager()
+    if manager.isDisabled():
+        return None
+    if not manager.masterPasswordIsSet() and not manager.setMasterPassword(True):
+        return None
+    return manager
+
+
+def load_api_key():
+    """The saved API key ('' if none). Reads the Authentication Manager first and falls
+    back to QgsSettings; a key left in QgsSettings by an older version is moved to the
+    Authentication Manager when possible."""
+    settings = QgsSettings()
+    cfg_id = settings.value(AUTH_CFG_ID_SETTING, "")
+    if cfg_id:
+        manager = _auth_manager()
+        if manager is not None:
+            config = QgsAuthMethodConfig()
+            if manager.loadAuthenticationConfig(cfg_id, config, True):
+                return config.config("password", "")
+    legacy = settings.value(LEGACY_KEY_SETTING, "")
+    if legacy and not cfg_id and save_api_key(legacy):
+        return legacy
+    return legacy or ""
+
+
+def save_api_key(api_key):
+    """Store the key in the Authentication Manager, or in QgsSettings if that is not
+    available. Returns True when it went to the Authentication Manager."""
+    settings = QgsSettings()
+    manager = _auth_manager()
+    if manager is not None:
+        config = QgsAuthMethodConfig()
+        cfg_id = settings.value(AUTH_CFG_ID_SETTING, "")
+        if not cfg_id or not manager.loadAuthenticationConfig(cfg_id, config, True):
+            config = QgsAuthMethodConfig()
+            config.setName(AUTH_CFG_NAME)
+            config.setMethod("Basic")
+        config.setConfig("username", "api-key")
+        config.setConfig("password", api_key)
+        if (manager.updateAuthenticationConfig(config) if config.id()
+                else manager.storeAuthenticationConfig(config)):
+            settings.setValue(AUTH_CFG_ID_SETTING, config.id())
+            settings.remove(LEGACY_KEY_SETTING)
+            return True
+        QgsMessageLog.logMessage(
+            "Could not store the API key in the Authentication Manager; "
+            "using QGIS settings instead.", LOG_TAG, Qgis.Warning)
+    settings.setValue(LEGACY_KEY_SETTING, api_key)
+    return False
+
+
+def credits_exhausted_text(message):
+    """Add the next step to the server's 'not enough credits' message."""
+    return f"{message}\nBuy more credits at {GET_KEY_URL} and submit again."
+
+
 def normalize_date(text):
     """'2024-2-3' or '2024-02-03' -> '2024-02-03'. None if it is not a real date (the Copernicus
     catalogue rejects dates that are not zero-padded RFC 3339, and the API wants YYYY-MM-DD)."""
@@ -78,11 +152,11 @@ def normalize_date(text):
 
 
 def settings_default_range():
-    return QSettings().value("GammaEarth/date_range", "7")
+    return QgsSettings().value("GammaEarth/date_range", "7")
 
 
 def settings_default_max_clouds():
-    return QSettings().value("GammaEarth/max_clouds", "100")
+    return QgsSettings().value("GammaEarth/max_clouds", "100")
 
 
 CDSE_LIMIT = 100
@@ -105,8 +179,8 @@ MAX_JOBS_LIMIT = 200
 
 
 def settings_default_products():
-    """Products ticked last time (QSettings stores a single value as a plain string)."""
-    saved = QSettings().value("GammaEarth/products", ["MS"])
+    """Products ticked last time (QgsSettings stores a single value as a plain string)."""
+    saved = QgsSettings().value("GammaEarth/products", ["MS"])
     if isinstance(saved, str):
         saved = [saved]
     return [p for p in (saved or []) if p in PRODUCTS] or ["MS"]
@@ -114,7 +188,7 @@ def settings_default_products():
 
 def settings_default_jobs_limit():
     try:
-        return max(1, min(int(QSettings().value("GammaEarth/jobs_limit", DEFAULT_JOBS_LIMIT)), MAX_JOBS_LIMIT))
+        return max(1, min(int(QgsSettings().value("GammaEarth/jobs_limit", DEFAULT_JOBS_LIMIT)), MAX_JOBS_LIMIT))
     except (TypeError, ValueError):
         return DEFAULT_JOBS_LIMIT
 
@@ -197,8 +271,7 @@ class PollWorker(QObject):
                     if resp.status_code == 200:
                         self.ready.emit(self.url)
                         return
-                except Exception as e:
-                    print(f"[GammaEarth] HEAD check failed: {e}")
+                except Exception:
                     continue
             self.timeout.emit(self.url)
         except Exception as e:
@@ -384,8 +457,7 @@ class AOIDialog(QDialog):
         layout.addWidget(self.max_clouds_input)
 
         # --- API key & product type ---
-        settings = QSettings()
-        self.api_key_input = QLineEdit(settings.value("GammaEarth/api_key", ""))
+        self.api_key_input = QLineEdit(load_api_key())
         self.api_key_input.setEchoMode(QLineEdit.Password)
         root.addWidget(QLabel("API key"))
         root.addWidget(self.api_key_input)
@@ -483,11 +555,19 @@ class AOIDialog(QDialog):
         self.progress.setVisible(False)
         root.addWidget(self.progress)
 
-        # --- Gamma Earth branding (small marketing text) ---
+        # --- What is sent to the service, and the paid-service notice ---
         self.brand_label = QLabel(
-            "<small><i>Gamma Earth S2DR3 – Super-resolution for Sentinel-2. "
-            "Requires a Gamma Earth API key and Data Allowance. Learn more at https://gamma.earth</i></small>"
+            "<small><i>Gamma Earth S2DR3 needs a Gamma Earth API key and paid credits "
+            f"(<a href=\"{GET_KEY_URL}\">get a key</a>). "
+            "When you submit a job, the plugin sends your API key, the area of interest "
+            "(as GeoJSON), the date, date range and maximum cloud cover to "
+            "api.gamma.earth. The optional date search sends the area's bounding box and "
+            "dates to the Copernicus Data Space (stac.dataspace.copernicus.eu). "
+            "Nothing else is sent and there is no telemetry. "
+            f"<a href=\"{PRIVACY_URL}\">Privacy policy and terms</a></i></small>"
         )
+        self.brand_label.setWordWrap(True)
+        self.brand_label.setOpenExternalLinks(True)
         root.addWidget(self.brand_label)
 
         # --- Buttons ---
@@ -651,7 +731,6 @@ class GammaEarthPlugin:
 
     def initGui(self):
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
-        print("[GammaEarth] Icon path:", icon_path, "exists:", os.path.exists(icon_path))
 
         self.action = QAction(QIcon(icon_path), "Gamma Earth", self.iface.mainWindow())
         self.action.triggered.connect(self.run)
@@ -687,10 +766,12 @@ class GammaEarthPlugin:
     # ========================================================
     def run_from_dialog(self):
         d = self.dialog.get_data()
-        print(f"[GammaEarth] run_from_dialog() AOI mode: {d['aoi_mode']}")
 
         api_key = d["api_key"].strip()
-        if not api_key or "/" in api_key:
+        if not api_key:
+            self.dialog.set_status(NO_KEY_MESSAGE, True, clear=True)
+            return
+        if "/" in api_key:
             self.dialog.set_status("Invalid API key", True, clear=True)
             return
 
@@ -724,11 +805,14 @@ class GammaEarthPlugin:
             self.dialog.set_status("Tick at least one product", True, clear=True)
             return
 
-        QSettings().setValue("GammaEarth/api_key", api_key)
-        QSettings().setValue("GammaEarth/date_range", date_range)
-        QSettings().setValue("GammaEarth/max_clouds", max_clouds)
-        QSettings().setValue("GammaEarth/products", d["products"])
-        QSettings().setValue("GammaEarth/last_output_folder", d["output_folder"])
+        if not save_api_key(api_key):
+            self.dialog.set_status(
+                "Could not use the QGIS Authentication Manager; the API key is saved "
+                "in the QGIS settings instead.", False)
+        QgsSettings().setValue("GammaEarth/date_range", date_range)
+        QgsSettings().setValue("GammaEarth/max_clouds", max_clouds)
+        QgsSettings().setValue("GammaEarth/products", d["products"])
+        QgsSettings().setValue("GammaEarth/last_output_folder", d["output_folder"])
         self.output_folder = d["output_folder"]
 
         aoi = self.build_aoi(d)
@@ -814,7 +898,6 @@ class GammaEarthPlugin:
     # ========================================================
     def build_aoi(self, d):
         mode = d["aoi_mode"]
-        print(f"[GammaEarth] AOI mode selected: {mode}")
 
         # 1) Selected polygon
         if mode == 0:
@@ -866,7 +949,6 @@ class GammaEarthPlugin:
                 f"{bbox.xMaximum():.5f}, {bbox.yMaximum():.5f}"
             )
             info_text = " | ".join(info_parts)
-            print(f"[GammaEarth] Selected AOI info: {info_text}")
 
             self.dialog.selection_info.setText(
                 f"<i style='color:#2e7d32;'>{info_text}</i>"
@@ -928,7 +1010,6 @@ class GammaEarthPlugin:
                 f"centered at ({lon}, {lat}) | "
                 f"AOI bbox: {minx:.5f}, {miny:.5f}, {maxx:.5f}, {maxy:.5f}"
             )
-            print(f"[GammaEarth] {info_text}")
             self.dialog.set_status(info_text, error=False, clear=True)
 
             return f"{minx} {miny} {maxx} {maxy}"
@@ -950,7 +1031,6 @@ class GammaEarthPlugin:
                 f"{extent.xMinimum():.5f}, {extent.yMinimum():.5f}, "
                 f"{extent.xMaximum():.5f}, {extent.yMaximum():.5f}"
             )
-            print(f"[GammaEarth] {info_text}")
             self.dialog.set_status(info_text, error=False, clear=True)
 
             return (
@@ -984,8 +1064,16 @@ class GammaEarthPlugin:
     def on_submit_response(self, api_key, products, r):
         self.dialog.set_busy(None)
         try:
-            print(f"[GammaEarth] Submit response: {r.status_code} — {r.text}")
-            if r.status_code in (400, 401, 402, 404, 503):
+            if r.status_code == 402:
+                self.dialog.set_status(credits_exhausted_text(error_text(r)), True)
+                self.dialog.submit_button.setEnabled(True)
+                return
+            if r.status_code == 401:
+                self.dialog.set_status(
+                    f"{error_text(r)}\nCheck your API key, or get one at {GET_KEY_URL}", True)
+                self.dialog.submit_button.setEnabled(True)
+                return
+            if r.status_code in (400, 404, 503):
                 # 404: no image meets the date range and cloud limit; 400: invalid input;
                 # 401: missing/unknown API key; 402: not enough credits; 503: credit
                 # reservation failed. Nothing was reserved, so tell the user plainly.
@@ -1000,7 +1088,6 @@ class GammaEarthPlugin:
                 return
 
             data = r.json()
-            print("[GammaEarth] Response JSON keys:", list(data.keys()))
             if data.get("error"):
                 self.dialog.set_status(str(data["error"]), True)
                 self.dialog.submit_button.setEnabled(True)
@@ -1049,7 +1136,6 @@ class GammaEarthPlugin:
             self.process_next_product()
 
         except Exception as e:
-            print(f"[GammaEarth] Exception in submit_job: {e}")
             self.dialog.set_status(
                 f"Error submitting job: {redact(str(e), api_key)}", True
             )
@@ -1081,11 +1167,12 @@ class GammaEarthPlugin:
         """Fetch balance + per-job credits for the key in the dialog."""
         api_key = self.dialog.api_key_input.text().strip()
         if not api_key or "/" in api_key:
-            self.dialog.set_status("Enter a valid API key to check credits", True)
+            self.dialog.set_status(
+                NO_KEY_MESSAGE if not api_key else "Invalid API key", True)
             return
 
         limit = self.dialog.jobs_limit_input.value()
-        QSettings().setValue("GammaEarth/jobs_limit", limit)
+        QgsSettings().setValue("GammaEarth/jobs_limit", limit)
         self.dialog.credits_button.setEnabled(False)
         thread = QThread()
         worker = CreditsWorker(api_key, limit)
@@ -1323,7 +1410,6 @@ class GammaEarthPlugin:
             f"datetime={params.get('datetime', 'ANY')}, "
             f"max_cloud={max_cloud if max_cloud is not None else 'ANY'}"
         )
-        print(f"[GammaEarth] {debug_line}")
         self.dialog.set_status(debug_line, error=False, clear=True)
 
         self.dialog.set_busy(debug_line + "\nSearching Copernicus CDSE…")
@@ -1340,7 +1426,6 @@ class GammaEarthPlugin:
     def on_cdse_response(self, max_cloud, resp):
         self.dialog.set_busy(None)
         try:
-            print(f"[GammaEarth] CDSE STAC URL: {resp.url}")
 
             if resp.status_code != 200:
                 self.dialog.set_status(
