@@ -1,0 +1,81 @@
+# Release workflow: push a tag such as v1.1 and this builds the plugin zip, validates it,
+# attaches it to a GitHub release and (optionally) uploads it to plugins.qgis.org.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the GitHub release and attach the zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install qgis-plugin-ci
+
+      - name: Work out the version from the tag (v1.1 -> 1.1)
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      # Without any token, qgis-plugin-ci only builds the zip (from the tagged commit)
+      # and fills the changelog field of metadata.txt from CHANGELOG.md. It uploads nothing.
+      - name: Build zip
+        run: qgis-plugin-ci release "$VERSION" --release-tag "$GITHUB_REF_NAME"
+
+      - name: Validate zip (fails the release on forbidden files or invalid metadata)
+        run: |
+          python scripts/validate_package.py "gamma_earth_plugin.${VERSION}.zip" \
+            --changelog CHANGELOG.md --root-license LICENSE --expect-version "$VERSION"
+
+      - name: Create GitHub release and attach the zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          qgis-plugin-ci changelog "$VERSION" > release-notes.md
+          gh release create "$GITHUB_REF_NAME" "gamma_earth_plugin.${VERSION}.zip" \
+            --title "Gamma Earth S2DR3 ${VERSION}" --notes-file release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-zip
+          path: gamma_earth_plugin.*.zip
+
+  # OPTIONAL: upload the validated zip to https://plugins.qgis.org.
+  # Disabled by default. To enable it:
+  #   1. Upload the very first version by hand at https://plugins.qgis.org/plugins/add/
+  #      and wait for it to be approved.
+  #   2. Add the repository secrets OSGEO_USERNAME and OSGEO_PASSWORD (Settings >
+  #      Secrets and variables > Actions). Never commit credentials.
+  #   3. Add the repository variable PUBLISH_TO_QGIS_REPO with the value "true".
+  #   4. Optional: create an environment named "qgis-plugin-repository" with required
+  #      reviewers, so each upload needs a manual approval.
+  publish:
+    needs: build
+    if: vars.PUBLISH_TO_QGIS_REPO == 'true'
+    runs-on: ubuntu-latest
+    environment: qgis-plugin-repository
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install qgis-plugin-ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-zip
+      - name: Upload the validated zip to plugins.qgis.org
+        env:
+          OSGEO_USERNAME: ${{ secrets.OSGEO_USERNAME }}
+          OSGEO_PASSWORD: ${{ secrets.OSGEO_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import glob, os
+          from qgispluginci.release import upload_plugin_to_osgeo_xml_rpc
+          (archive,) = glob.glob("gamma_earth_plugin.*.zip")
+          upload_plugin_to_osgeo_xml_rpc(
+              os.environ["OSGEO_USERNAME"], os.environ["OSGEO_PASSWORD"], archive
+          )
+          PY

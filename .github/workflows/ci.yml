@@ -1,0 +1,32 @@
+# Build the plugin zip on every push / pull request and validate it, so packaging
+# problems are caught long before a release.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install qgis-plugin-ci
+      - name: Build zip (version taken from metadata.txt)
+        run: |
+          VERSION=$(sed -n 's/^version=//p' gamma_earth_plugin/metadata.txt | tr -d '[:space:]')
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          qgis-plugin-ci package "$VERSION"
+      - name: Validate zip (layout, forbidden files, metadata, licence, changelog)
+        run: |
+          python scripts/validate_package.py "gamma_earth_plugin.${VERSION}.zip" \
+            --changelog CHANGELOG.md --root-license LICENSE --expect-version "$VERSION"
+      - name: Import check (syntax of every Python file)
+        run: python -m compileall -q gamma_earth_plugin
