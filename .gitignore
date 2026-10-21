@@ -1,3 +1,10 @@
 __pycache__/
 *.pyc
 .DS_Store
+__MACOSX/
+*.zip
+.venv/
+dist/
+build/
+.idea/
+.vscode/
