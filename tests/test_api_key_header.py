@@ -14,7 +14,7 @@ from qgis.core import QgsApplication
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 KEY = "k" * 32
-_app = QgsApplication([], False)
+_app = QgsApplication([], True)
 _app.initQgis()
 
 from gamma_earth_plugin import gamma_earth_plugin as plugin  # noqa: E402
@@ -63,6 +63,15 @@ class ApiKeyHeaderTest(unittest.TestCase):
             self.assertTrue(plugin.valid_api_key_format(good), good)
         for bad in ("", "has space", "tab\tkey", "new\nline", "ключ", "a" * 5 + "\x00"):
             self.assertFalse(plugin.valid_api_key_format(bad), repr(bad))
+
+    def test_the_dialog_opens_and_shows_the_disclosure(self):
+        with mock.patch.object(plugin, "load_api_key", return_value=""):
+            dialog = plugin.AOIDialog()
+        text = dialog.brand_label.text()
+        self.assertIn("api.gamma.earth", text)
+        self.assertIn(plugin.PRIVACY_URL, text)
+        self.assertEqual(dialog.api_key_input.echoMode(), plugin.QLineEdit.Password)
+        dialog.close()
 
     def test_redact_hides_the_key(self):
         self.assertEqual(plugin.redact(f"boom {KEY}", KEY), "boom ***")

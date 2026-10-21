@@ -28,5 +28,8 @@ jobs:
         run: |
           python scripts/validate_package.py "gamma_earth_plugin.${VERSION}.zip" \
             --changelog CHANGELOG.md --root-license LICENSE --expect-version "$VERSION"
-      - name: Import check (syntax of every Python file)
-        run: python -m compileall -q gamma_earth_plugin
+      - name: Static check (syntax and undefined names)
+        run: |
+          python -m compileall -q gamma_earth_plugin
+          pip install ruff
+          ruff check --select F821,F823,E9 gamma_earth_plugin

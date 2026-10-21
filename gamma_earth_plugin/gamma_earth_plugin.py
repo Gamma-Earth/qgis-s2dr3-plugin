@@ -523,7 +523,7 @@ class AOIDialog(QDialog):
 
         # --- Output folder ---
         layout.addWidget(QLabel("Output folder"))
-        self.folder_input = QLineEdit(settings.value("GammaEarth/last_output_folder", ""))
+        self.folder_input = QLineEdit(QgsSettings().value("GammaEarth/last_output_folder", ""))
         self.folder_browse = QPushButton("Browse")
         self.folder_browse.clicked.connect(self.browse_folder)
 
