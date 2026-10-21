@@ -73,8 +73,8 @@ no analytics):
 
 | Action | Sent to | Data |
 |---|---|---|
-| Submit a job | `api.gamma.earth` | your API key, the area of interest as GeoJSON, the date, date range and maximum cloud cover, and a client identifier (`qgis-plugin/<version>`) |
-| Check credits | `api.gamma.earth` | your API key and the number of jobs to list |
+| Submit a job | `api.gamma.earth` | your API key (in the `X-API-Key` header, never in the URL), the area of interest as GeoJSON, the date, date range and maximum cloud cover, and a client identifier (`qgis-plugin/<version>`) |
+| Check credits | `api.gamma.earth` | your API key (header) and the number of jobs to list |
 | Check Sentinel-2 dates | `stac.dataspace.copernicus.eu` (Copernicus Data Space) | the bounding box of the area, the date range and the cloud limit; no key |
 | Download results | the storage URL returned by the service | a plain download request |
 

@@ -15,6 +15,7 @@ from qgis.core import (
     Qgis, QgsApplication, QgsAuthMethodConfig, QgsMessageLog, QgsProject,
     QgsRasterLayer, QgsSettings, QgsVectorLayer
 )
+import re
 import requests
 import os
 import tempfile
@@ -47,9 +48,16 @@ def client_id():
     return f"qgis-plugin/{plugin_version()}"
 
 
-def api_headers():
-    """Headers for requests to the Gamma Earth API (not for CDSE or the downloads)."""
-    return {"User-Agent": f"GammaEarthQGIS/{plugin_version()}"}
+def api_headers(api_key):
+    """Headers for requests to the Gamma Earth API (not for CDSE or the downloads).
+    The key travels in a header, never in the URL, so it stays out of server logs."""
+    return {"User-Agent": f"GammaEarthQGIS/{plugin_version()}", "X-API-Key": api_key}
+
+
+def valid_api_key_format(api_key):
+    """True for a non-empty key made only of printable ASCII (no spaces); the API rejects
+    anything else, and anything else cannot be sent in a header."""
+    return bool(re.fullmatch(r"[\x21-\x7e]+", api_key))
 
 
 def storage_url(path):
@@ -63,7 +71,7 @@ def storage_url(path):
 
 
 def redact(text, api_key):
-    """requests errors embed the request URL, which contains the API key."""
+    """Safety net: make sure the key never shows up in an error message."""
     return text.replace(api_key, "***") if api_key else text
 
 
@@ -299,7 +307,7 @@ class RequestWorker(QObject):
 
 
 # ============================================================
-# Credits Worker (GET <API_BASE_URL>/<api_key> in the background)
+# Credits Worker (GET <API_BASE_URL> with the key in a header, in the background)
 # ============================================================
 class CreditsWorker(QObject):
     result = pyqtSignal(dict)
@@ -313,9 +321,9 @@ class CreditsWorker(QObject):
     def run(self):
         try:
             r = requests.get(
-                f"{api_base_url()}/{self.api_key}",
+                api_base_url(),
                 params={"limit": self.limit},
-                headers=api_headers(),
+                headers=api_headers(self.api_key),
                 timeout=30,
             )
             if r.status_code != 200:
@@ -771,7 +779,7 @@ class GammaEarthPlugin:
         if not api_key:
             self.dialog.set_status(NO_KEY_MESSAGE, True, clear=True)
             return
-        if "/" in api_key:
+        if not valid_api_key_format(api_key):
             self.dialog.set_status("Invalid API key", True, clear=True)
             return
 
@@ -1042,7 +1050,7 @@ class GammaEarthPlugin:
 
     # ========================================================
     def submit_job(self, api_key, aoi, date, date_range, max_clouds, products):
-        url = f"{api_base_url()}/{api_key}"
+        url = api_base_url()
         payload = {
             "date": date,
             "date_range": date_range,
@@ -1058,7 +1066,7 @@ class GammaEarthPlugin:
             "POST", url,
             lambda r: self.on_submit_response(api_key, products, r),
             lambda msg: self.on_submit_error(api_key, msg),
-            json=payload, headers=api_headers(), timeout=90,
+            json=payload, headers=api_headers(api_key), timeout=90,
         )
 
     def on_submit_response(self, api_key, products, r):
@@ -1166,7 +1174,7 @@ class GammaEarthPlugin:
     def refresh_credits(self, *_, announce_job=False):
         """Fetch balance + per-job credits for the key in the dialog."""
         api_key = self.dialog.api_key_input.text().strip()
-        if not api_key or "/" in api_key:
+        if not api_key or not valid_api_key_format(api_key):
             self.dialog.set_status(
                 NO_KEY_MESSAGE if not api_key else "Invalid API key", True)
             return

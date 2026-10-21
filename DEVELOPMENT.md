@@ -46,7 +46,16 @@ Tip: install the **Plugin Reloader** plugin to reload your changes without resta
 To remove the link later, delete the symlink only (`rm <link>` on macOS/Linux,
 `rmdir <link>` on Windows). Do not delete the folder it points to.
 
-## 2. Build and validate a package locally
+## 2. Tests
+
+The tests need the `qgis` Python modules, so run them with the Python that ships with
+QGIS (macOS: `/Applications/QGIS.app/Contents/MacOS/python`):
+
+```bash
+QT_QPA_PLATFORM=offscreen /Applications/QGIS.app/Contents/MacOS/python -m unittest discover tests
+```
+
+## 3. Build and validate a package locally
 
 ```bash
 python -m venv .venv && .venv/bin/pip install qgis-plugin-ci
@@ -61,7 +70,7 @@ never get in. `scripts/validate_package.py` fails on forbidden files, an invalid
 metadata, a missing LICENSE, or a CHANGELOG/metadata version mismatch. CI runs the same
 checks on every push and pull request.
 
-## 3. Release
+## 4. Release
 
 1. Update `version=` in `gamma_earth_plugin/metadata.txt` and add a
    `## [x.y.z] - YYYY-MM-DD` section to `CHANGELOG.md` (semantic version, three numbers).
