@@ -1,18 +1,20 @@
 [general]
-name=S2DR3
-description=10x super-resolution of Sentinel-2 images using Gamma Earth's S2DR3 API.
+name=Gamma Earth S2DR3
+qgisMinimumVersion=3.34
+description=10x super-resolution of Sentinel-2 images with the Gamma Earth S2DR3 service (API key and paid credits required)
+about=Gamma Earth S2DR3 sends a Sentinel-2 area of interest to the Gamma Earth S2DR3 web service, which returns a 10x super-resolved image that is loaded into your QGIS project.
+    <b>This plugin needs a Gamma Earth API key and paid credits</b> (each job uses credits); the plugin does not work without them. Get a key at https://gamma.earth. The key is stored in the QGIS Authentication Manager.
+    <b>Data sent:</b> when you submit a job the plugin sends your API key, the area of interest (GeoJSON geometry), the date, date range and maximum cloud cover to https://api.gamma.earth. The optional "Check Sentinel-2 dates" search sends the area's bounding box, date range and cloud limit to the Copernicus Data Space STAC catalogue (https://stac.dataspace.copernicus.eu). Results are downloaded from the storage URL returned by the service. No other data is sent and there is no telemetry.
+    Privacy policy and terms: https://demo.gamma.earth/legal/index.html
 version=1.1
-qgisMinimumVersion=3.0
 author=Gamma Earth
 email=info@gamma.earth
 homepage=https://gamma.earth
 repository=https://github.com/Gamma-Earth/gamma-earth-plugin
 tracker=https://github.com/Gamma-Earth/gamma-earth-plugin/issues
-changelog=1.1
-    - Max cloud cover field: no limit (default 100) uses the clearest image in the date range, a lower value uses the closest image under that limit
-    - Several products can be ticked and are downloaded from the same job
-    - New "New job" and "Credits" tabs; the Credits tab lists your latest jobs with their PID (number of jobs is configurable)
-    - Job submission and the Copernicus date search no longer freeze QGIS
-    - Clear messages when no image qualifies, the API key is invalid or credits are insufficient
-    - Fix: Copernicus date search failed with HTTP 400
-    - The plugin identifies itself to the API (qgis-plugin/1.1)
+icon=icon.png
+tags=sentinel-2, super-resolution, remote sensing, satellite, imagery, raster
+category=Raster
+experimental=False
+deprecated=False
+changelog=See CHANGELOG.md in the repository
