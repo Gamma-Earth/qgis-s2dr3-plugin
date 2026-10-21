@@ -1,6 +1,6 @@
 # Configuration for qgis-plugin-ci (https://opengisch.github.io/qgis-plugin-ci/)
 plugin_path: gamma_earth_plugin
 github_organization_slug: Gamma-Earth
-project_slug: gamma-earth-plugin
+project_slug: qgis-s2dr3-plugin
 changelog_path: CHANGELOG.md
 # The "changelog" field of the packaged metadata.txt is generated from CHANGELOG.md.

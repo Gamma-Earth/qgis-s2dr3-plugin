@@ -15,24 +15,24 @@ name used by `__init__.py`).
 ### macOS
 
 ```bash
-ln -s /path/to/gamma-earth-plugin/gamma_earth_plugin \
+ln -s /path/to/qgis-s2dr3-plugin/gamma_earth_plugin \
   "$HOME/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/gamma_earth_plugin"
 ```
 
 ### Linux
 
 ```bash
-ln -s /path/to/gamma-earth-plugin/gamma_earth_plugin \
+ln -s /path/to/qgis-s2dr3-plugin/gamma_earth_plugin \
   "$HOME/.local/share/QGIS/QGIS3/profiles/default/python/plugins/gamma_earth_plugin"
 ```
 
 ### Windows (Command Prompt, as administrator or with Developer Mode on)
 
 ```bat
-mklink /D "%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\gamma_earth_plugin" "C:\path\to\gamma-earth-plugin\gamma_earth_plugin"
+mklink /D "%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\gamma_earth_plugin" "C:\path\to\qgis-s2dr3-plugin\gamma_earth_plugin"
 ```
 
-Replace `/path/to/gamma-earth-plugin` with the folder you cloned. If you use a QGIS
+Replace `/path/to/qgis-s2dr3-plugin` with the folder you cloned. If you use a QGIS
 profile other than `default`, replace `default` in the path with its name.
 
 ### Enable the plugin

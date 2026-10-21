@@ -22,7 +22,7 @@ From the QGIS plugin catalogue:
 3. Open the plugin from the **Gamma Earth** toolbar icon or the *Plugins > Gamma Earth* menu.
 
 To install a zip manually (for example a pre-release from the
-[GitHub releases](https://github.com/Gamma-Earth/gamma-earth-plugin/releases)), use
+[GitHub releases](https://github.com/Gamma-Earth/qgis-s2dr3-plugin/releases)), use
 *Plugins > Manage and Install Plugins... > Install from ZIP*.
 
 ## API key
@@ -86,7 +86,7 @@ GPL-3.0-or-later. See [LICENSE](LICENSE).
 
 ## Support and issues
 
-Report issues at <https://github.com/Gamma-Earth/gamma-earth-plugin/issues>
+Report issues at <https://github.com/Gamma-Earth/qgis-s2dr3-plugin/issues>
 or contact info@gamma.earth. See the [CHANGELOG](CHANGELOG.md) for release notes.
 
 For development, packaging and releasing see [DEVELOPMENT.md](DEVELOPMENT.md).
