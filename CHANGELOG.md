@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.1.1] - 2026-10-22
+
+- NDVI and IRP are downloaded as themselves; they used to be replaced by TCI. Their files are found next to the TCI/MS ones, as for MS.
+
 ## [1.1.0] - 2026-10-21
 
 - First release on the official QGIS plugin repository.
