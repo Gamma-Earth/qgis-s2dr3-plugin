@@ -209,18 +209,9 @@ def error_text(response):
         return response.text
 
 
-def effective_products(selected):
-    """Products to download for the ticked ones. NDVI and IRP are not available
-    as GeoTIFFs yet, so they fall back to TCI (downloaded once even if TCI is
-    also ticked). Returns (products, fallback_used)."""
-    products, fallback = [], False
-    for product in selected:
-        if product in ("NDVI", "IRP"):
-            fallback = True
-            product = "TCI"
-        if product not in products:
-            products.append(product)
-    return products, fallback
+def products_to_download(selected):
+    """The ticked products, each once, in the order they were ticked."""
+    return list(dict.fromkeys(selected))
 
 
 # ============================================================
@@ -1101,13 +1092,7 @@ class GammaEarthPlugin:
                 self.dialog.submit_button.setEnabled(True)
                 return
 
-            to_download, fallback = effective_products(products)
-            if fallback:
-                self.dialog.set_status(
-                    "NDVI and IRP are not yet available as direct GeoTIFF; "
-                    "downloading TCI instead.",
-                    error=False,
-                )
+            to_download = products_to_download(products)
 
             urls = []
             for product in to_download:

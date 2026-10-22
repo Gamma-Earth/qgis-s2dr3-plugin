@@ -73,6 +73,19 @@ class ApiKeyHeaderTest(unittest.TestCase):
         self.assertEqual(dialog.api_key_input.echoMode(), plugin.QLineEdit.Password)
         dialog.close()
 
+    def test_every_product_is_resolved_to_its_own_file(self):
+        data = {"save_path_S3_TCI": "s3://out-bucket/CO/T18NWL/PID/S2L2Ax10_PID_TCI.tif"}
+        resolve = plugin.GammaEarthPlugin.resolve_output_path
+        for product in plugin.PRODUCTS:
+            self.assertEqual(
+                resolve(data, product),
+                f"s3://out-bucket/CO/T18NWL/PID/S2L2Ax10_PID_{product}.tif")
+
+    def test_ticked_products_are_not_replaced(self):
+        self.assertEqual(
+            plugin.products_to_download(["NDVI", "TCI", "IRP", "NDVI"]),
+            ["NDVI", "TCI", "IRP"])
+
     def test_redact_hides_the_key(self):
         self.assertEqual(plugin.redact(f"boom {KEY}", KEY), "boom ***")
 
