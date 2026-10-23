@@ -54,7 +54,7 @@ Open the plugin from the **Gamma Earth** toolbar icon or the *Plugins > Gamma Ea
    If no image qualifies, the plugin shows why and no credits are used.
 4. Click **Submit**. Progress is shown in the status log; each ticked product is
    downloaded to the output folder and added to the project. All products of a job
-   share one cost. `NDVI` and `IRP` are not available as GeoTIFF yet and download as `TCI`.
+   share one cost. `NDVI` and `IRP` are colour-rendered images (not numeric index values).
 
 The dialog has two tabs: **New job** and **Credits**. In **Credits**, click **Check credits** to see your balance (purchased and bonus) and a table of
 recent jobs (job ID, PID, date, status and credits used). *Jobs shown* sets how many
