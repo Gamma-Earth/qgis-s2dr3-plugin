@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.1.2] - 2026-11-02
+
+- Fix: security scan findings (silent exception handling) in the file-wait loop and the Copernicus result sorting. Network errors while waiting for a file are now logged.
+
 ## [1.1.1] - 2026-10-22
 
 - NDVI and IRP are downloaded as themselves; they used to be replaced by TCI. Their files are found next to the TCI/MS ones, as for MS.

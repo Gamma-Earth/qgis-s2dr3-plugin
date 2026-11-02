@@ -267,11 +267,13 @@ class PollWorker(QObject):
                 time.sleep(self.wait_seconds)
                 try:
                     resp = requests.head(self.url, timeout=15)
-                    if resp.status_code == 200:
-                        self.ready.emit(self.url)
-                        return
-                except Exception:
+                except requests.RequestException as e:
+                    QgsMessageLog.logMessage(
+                        f"Waiting for file, will retry: {e}", LOG_TAG, Qgis.Info)
                     continue
+                if resp.status_code == 200:
+                    self.ready.emit(self.url)
+                    return
             self.timeout.emit(self.url)
         except Exception as e:
             self.error.emit(str(e))
@@ -1439,12 +1441,9 @@ class GammaEarthPlugin:
                 return
 
             # Sort results by datetime (ascending)
-            try:
-                features.sort(
-                    key=lambda f: f.get("properties", {}).get("datetime", "")
-                )
-            except Exception:
-                pass
+            features.sort(
+                key=lambda f: (f.get("properties") or {}).get("datetime") or ""
+            )
 
             # Build a compact table of results and show count + max cloud used
             header = (
