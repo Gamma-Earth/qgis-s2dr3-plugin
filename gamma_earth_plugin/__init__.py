@@ -11,7 +11,7 @@ def classFactory(iface):
             "Gamma Earth S2DR3",
             "The Python package 'requests' is missing from this QGIS installation, "
             "so the plugin cannot start.",
-            level=Qgis.Critical,
+            level=Qgis.MessageLevel.Critical,
         )
         return _Disabled()
     from .gamma_earth_plugin import GammaEarthPlugin

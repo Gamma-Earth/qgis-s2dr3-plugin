@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.1.3] - 2026-11-03
+
+- Qt6 compatibility: all Qt and QGIS enums are now fully qualified (for example `Qt.CursorShape.PointingHandCursor`, `Qgis.MessageLevel.Warning`). No change in behaviour.
+
 ## [1.1.2] - 2026-11-02
 
 - Fix: security scan findings (silent exception handling) in the file-wait loop and the Copernicus result sorting. Network errors while waiting for a file are now logged.
