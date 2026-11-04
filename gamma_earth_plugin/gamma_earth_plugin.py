@@ -139,7 +139,7 @@ def save_api_key(api_key):
             return True
         QgsMessageLog.logMessage(
             "Could not store the API key in the Authentication Manager; "
-            "using QGIS settings instead.", LOG_TAG, Qgis.Warning)
+            "using QGIS settings instead.", LOG_TAG, Qgis.MessageLevel.Warning)
     settings.setValue(LEGACY_KEY_SETTING, api_key)
     return False
 
@@ -269,7 +269,7 @@ class PollWorker(QObject):
                     resp = requests.head(self.url, timeout=15)
                 except requests.RequestException as e:
                     QgsMessageLog.logMessage(
-                        f"Waiting for file, will retry: {e}", LOG_TAG, Qgis.Info)
+                        f"Waiting for file, will retry: {e}", LOG_TAG, Qgis.MessageLevel.Info)
                     continue
                 if resp.status_code == 200:
                     self.ready.emit(self.url)
@@ -422,7 +422,7 @@ class AOIDialog(QDialog):
         layout.addLayout(cdse_row)
 
         self.cdse_button = QPushButton("Check Sentinel-2 dates in CDSE  \u25B6")
-        self.cdse_button.setCursor(Qt.PointingHandCursor)
+        self.cdse_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cdse_button.setMinimumHeight(30)
         self.cdse_button.setStyleSheet(
             "QPushButton { background-color: #1565c0; color: white; font-weight: bold;"
@@ -459,7 +459,7 @@ class AOIDialog(QDialog):
 
         # --- API key & product type ---
         self.api_key_input = QLineEdit(load_api_key())
-        self.api_key_input.setEchoMode(QLineEdit.Password)
+        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         root.addWidget(QLabel("API key"))
         root.addWidget(self.api_key_input)
 
@@ -481,13 +481,13 @@ class AOIDialog(QDialog):
         self.jobs_table.setHorizontalHeaderLabels(
             ["Job ID", "PID", "Date", "Status", "Credits used"]
         )
-        self.jobs_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.jobs_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.jobs_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.jobs_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.jobs_table.verticalHeader().setVisible(False)
-        self.jobs_table.setTextElideMode(Qt.ElideNone)
+        self.jobs_table.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.jobs_table.setAlternatingRowColors(True)
         header = self.jobs_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
         self.jobs_table.setVisible(False)
         credits_layout.addWidget(self.jobs_table, 1)
@@ -497,7 +497,7 @@ class AOIDialog(QDialog):
             "<i>Enter your API key and click <b>Check credits</b> to list your latest jobs.</i>"
         )
         self.jobs_hint.setWordWrap(True)
-        self.jobs_hint.setAlignment(Qt.AlignTop)
+        self.jobs_hint.setAlignment(Qt.AlignmentFlag.AlignTop)
         credits_layout.addWidget(self.jobs_hint)
 
         # --- Products (one or more) ---
@@ -532,7 +532,7 @@ class AOIDialog(QDialog):
         form_widget.setLayout(layout)
         form_scroll = QScrollArea()
         form_scroll.setWidgetResizable(True)
-        form_scroll.setFrameShape(QFrame.NoFrame)
+        form_scroll.setFrameShape(QFrame.Shape.NoFrame)
         form_scroll.setWidget(form_widget)
 
         credits_widget = QWidget()
@@ -548,7 +548,7 @@ class AOIDialog(QDialog):
         self.status_edit.setReadOnly(True)
         self.status_edit.setMinimumHeight(70)
         self.status_edit.setMaximumHeight(110)
-        self.status_edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.status_edit.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         root.addWidget(self.status_edit)
 
         # --- Progress bar ---
