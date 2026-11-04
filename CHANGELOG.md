@@ -3,6 +3,7 @@
 ## [1.1.3] - 2026-11-03
 
 - Qt6 compatibility: all Qt and QGIS enums are now fully qualified (for example `Qt.CursorShape.PointingHandCursor`, `Qgis.MessageLevel.Warning`). No change in behaviour.
+- The plugin homepage now points to the plugin's help article.
 
 ## [1.1.2] - 2026-11-02
 
