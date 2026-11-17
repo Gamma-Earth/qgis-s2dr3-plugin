@@ -15,6 +15,7 @@ from qgis.core import (
     Qgis, QgsApplication, QgsAuthMethodConfig, QgsMessageLog, QgsProject,
     QgsRasterLayer, QgsSettings, QgsVectorLayer
 )
+import json
 import re
 import requests
 import os
@@ -209,6 +210,36 @@ def error_text(response):
         return response.text
 
 
+AOI_FILE_MAX_BYTES = 150 * 1024  # the service refuses a larger body
+
+
+def read_aoi_file(path):
+    """(content, None) to send as `aoi_file`, or (None, message).
+
+    GeoJSON is sent as the parsed JSON, KML and GPX as their text; the service
+    validates the shape and answers 400 with a clear message when it cannot use it.
+    """
+    try:
+        if os.path.getsize(path) > AOI_FILE_MAX_BYTES:
+            return None, (
+                "AOI file is larger than 150 KB. Simplify the shape "
+                "or use the Square method."
+            )
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8-sig")
+    except (OSError, UnicodeDecodeError) as e:
+        return None, f"Cannot read the AOI file: {e}"
+    if os.path.splitext(path)[1].lower() in (".kml", ".gpx"):
+        return text, None
+    try:
+        content = json.loads(text)
+    except ValueError:
+        content = None
+    if not isinstance(content, (dict, list)):
+        return None, "The AOI file is not valid GeoJSON, KML or GPX."
+    return content, None
+
+
 def products_to_download(selected):
     """The ticked products, each once, in the order they were ticked."""
     return list(dict.fromkeys(selected))
@@ -356,7 +387,7 @@ class AOIDialog(QDialog):
 
         self.rb_selection = QRadioButton("Use selected polygon from active layer")
         self.rb_square = QRadioButton("Define square by center (lon/lat) and side (km)")
-        self.rb_geojson = QRadioButton("Use AOI from GeoJSON file")
+        self.rb_geojson = QRadioButton("Use AOI from a file (GeoJSON, KML, GPX)")
 
         self.rb_selection.setChecked(True)
 
@@ -387,9 +418,9 @@ class AOIDialog(QDialog):
         row.addWidget(self.side_km)
         layout.addLayout(row)
 
-        # --- GeoJSON path ---
+        # --- AOI file path ---
         self.geojson_path = QLineEdit()
-        self.geojson_browse = QPushButton("Browse GeoJSON")
+        self.geojson_browse = QPushButton("Browse AOI file")
         self.geojson_browse.clicked.connect(self.browse_geojson)
 
         row = QHBoxLayout()
@@ -561,7 +592,7 @@ class AOIDialog(QDialog):
             "<small><i>Gamma Earth S2DR3 needs a Gamma Earth API key and paid credits "
             f"(<a href=\"{GET_KEY_URL}\">get a key</a>). "
             "When you submit a job, the plugin sends your API key, the area of interest "
-            "(as GeoJSON), the date, date range and maximum cloud cover to "
+            "(as a bounding box, or the content of your AOI file), the date, date range and maximum cloud cover to "
             "api.gamma.earth. The optional date search sends the area's bounding box and "
             "dates to the Copernicus Data Space (stac.dataspace.copernicus.eu). "
             "Nothing else is sent and there is no telemetry. "
@@ -615,7 +646,8 @@ class AOIDialog(QDialog):
     # -----------------------
     def browse_geojson(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select GeoJSON", "", "GeoJSON (*.geojson *.json)"
+            self, "Select AOI file", "",
+            "AOI files (*.geojson *.json *.kml *.gpx);;All files (*)"
         )
         if path:
             self.geojson_path.setText(path)
@@ -1015,29 +1047,29 @@ class GammaEarthPlugin:
 
             return f"{minx} {miny} {maxx} {maxy}"
 
-        # 3) GeoJSON file
+        # 3) AOI file (GeoJSON, KML, GPX)
         if mode == 2:
             path = d["geojson"]
             if not os.path.exists(path):
-                self.dialog.set_status("GeoJSON not found", True, clear=True)
+                self.dialog.set_status("AOI file not found", True, clear=True)
                 return None
+            content, problem = read_aoi_file(path)
+            if problem:
+                self.dialog.set_status(problem, True, clear=True)
+                return None
+            info_text = f"AOI: file '{os.path.basename(path)}'"
             layer = QgsVectorLayer(path, "aoi", "ogr")
-            if not layer.isValid():
-                self.dialog.set_status("Invalid GeoJSON", True, clear=True)
-                return None
-            extent = layer.extent()
-            info_text = (
-                f"AOI: GeoJSON file '{os.path.basename(path)}' | "
-                f"extent bbox: "
-                f"{extent.xMinimum():.5f}, {extent.yMinimum():.5f}, "
-                f"{extent.xMaximum():.5f}, {extent.yMaximum():.5f}"
-            )
+            if layer.isValid():  # only for the message: the service reads the file itself
+                extent = layer.extent()
+                info_text += (
+                    f" | extent bbox: "
+                    f"{extent.xMinimum():.5f}, {extent.yMinimum():.5f}, "
+                    f"{extent.xMaximum():.5f}, {extent.yMaximum():.5f}"
+                )
             self.dialog.set_status(info_text, error=False, clear=True)
 
-            return (
-                f"{extent.xMinimum()} {extent.yMinimum()} "
-                f"{extent.xMaximum()} {extent.yMaximum()}"
-            )
+            # The service crops the result to the shape and prices it by its area.
+            return {"aoi_file": content}
 
         return None
 
@@ -1048,9 +1080,12 @@ class GammaEarthPlugin:
             "date": date,
             "date_range": date_range,
             "max_clouds": max_clouds,
-            "aoi": aoi,
             "client": client_id(),
         }
+        if isinstance(aoi, dict):  # {"aoi_file": ...}: the shape itself
+            payload.update(aoi)
+        else:  # "minx miny maxx maxy"
+            payload["aoi"] = aoi
 
         self.dialog.set_busy(
             "Submitting Gamma Earth job… selecting the image can take up to a minute"
@@ -1115,6 +1150,8 @@ class GammaEarthPlugin:
                 clouds = data.get("cloud_cover")
                 cloud_text = f", {clouds}% cloud cover" if clouds is not None else ""
                 self.dialog.set_status(f"Image date: {data['date']}{cloud_text}")
+            if data.get("area_km2") is not None:
+                self.dialog.set_status(f"Area: {data['area_km2']} km2")
             if "requested_credits" in data:
                 balance = data.get("remaining_total_balance")
                 left = f", {balance} credits left" if balance is not None else ""
