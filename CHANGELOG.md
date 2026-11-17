@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.2.0] - 2026-11-17
 
 - AOI from a file: GeoJSON, KML or GPX. The file is sent to the service (`aoi_file`), which crops the result to the shape and prices it by the shape's area, not its bounding box. The labels no longer say GeoJSON only.
 
