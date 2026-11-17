@@ -40,7 +40,8 @@ Open the plugin from the **Gamma Earth** toolbar icon or the *Plugins > Gamma Ea
 1. **AOI input method** - choose one:
    - the selected polygon of the active layer,
    - a square defined by center longitude/latitude and side length (km),
-   - a GeoJSON file.
+   - an AOI file (GeoJSON, KML or GPX, up to 150 KB). The result is cropped to the
+     shape and priced by its area; the box around it must fit one job (about 150 km2).
 2. **Find a date (optional)** - enter a date range and maximum cloud cover, then
    click *Check Sentinel-2 dates in CDSE* to list available acquisitions from the
    Copernicus Data Space STAC catalogue.

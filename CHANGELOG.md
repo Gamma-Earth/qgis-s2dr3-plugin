@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- AOI from a file: GeoJSON, KML or GPX. The file is sent to the service (`aoi_file`), which crops the result to the shape and prices it by the shape's area, not its bounding box. The labels no longer say GeoJSON only.
+
 ## [1.1.3] - 2026-11-03
 
 - Qt6 compatibility: all Qt and QGIS enums are now fully qualified (for example `Qt.CursorShape.PointingHandCursor`, `Qgis.MessageLevel.Warning`). No change in behaviour.
