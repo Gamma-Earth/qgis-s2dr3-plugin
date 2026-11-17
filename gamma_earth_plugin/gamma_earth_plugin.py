@@ -1069,7 +1069,12 @@ class GammaEarthPlugin:
             self.dialog.set_status(info_text, error=False, clear=True)
 
             # The service crops the result to the shape and prices it by its area.
-            return {"aoi_file": content}
+            # "bbox" is only for the CDSE date search; it is never sent to the service.
+            bbox = None
+            if layer.isValid():
+                bbox = (f"{extent.xMinimum()} {extent.yMinimum()} "
+                        f"{extent.xMaximum()} {extent.yMaximum()}")
+            return {"aoi_file": content, "bbox": bbox}
 
         return None
 
@@ -1083,7 +1088,11 @@ class GammaEarthPlugin:
             "client": client_id(),
         }
         if isinstance(aoi, dict):  # {"aoi_file": ...}: the shape itself
-            payload.update(aoi)
+            payload["aoi_file"] = aoi["aoi_file"]
+            # This route wants JSON numbers; the dialog fields are text.
+            payload["date_range"] = int(date_range)
+            clouds = float(max_clouds)
+            payload["max_clouds"] = int(clouds) if clouds.is_integer() else clouds
         else:  # "minx miny maxx maxy"
             payload["aoi"] = aoi
 
@@ -1383,6 +1392,8 @@ class GammaEarthPlugin:
             # build_aoi already wrote a meaningful error into the status box
             return
 
+        if isinstance(aoi, dict):  # AOI file: search over the box around it
+            aoi = aoi.get("bbox") or ""
         try:
             minx, miny, maxx, maxy = map(float, aoi.split())
         except Exception:

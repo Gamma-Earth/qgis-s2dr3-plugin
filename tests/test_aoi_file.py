@@ -85,6 +85,35 @@ class AoiFileTest(unittest.TestCase):
         self.assertNotIn("aoi", body)
         self.assertNotIn(KEY, repr(body))
 
+    def test_a_file_job_sends_numbers_not_text(self):
+        body = self._submit({"aoi_file": GEOJSON, "bbox": "1 2 3 4"})
+        self.assertIs(type(body["date_range"]), int)
+        self.assertEqual(body["date_range"], 7)
+        self.assertIs(type(body["max_clouds"]), int)
+        self.assertEqual(body["max_clouds"], 100)
+        self.assertNotIn("bbox", body)
+
+    def test_a_fractional_cloud_limit_stays_a_float(self):
+        sent = {}
+        instance = plugin.GammaEarthPlugin.__new__(plugin.GammaEarthPlugin)
+        instance.dialog = mock.Mock()
+        instance.run_request = lambda method, url, ok, err, **kw: sent.update(kw)
+        instance.submit_job(KEY, {"aoi_file": GEOJSON}, "2024-01-31", "7", "12.5", ["TCI"])
+        self.assertEqual(sent["json"]["max_clouds"], 12.5)
+
+    def test_cdse_search_uses_the_box_of_a_file(self):
+        path = self.write("a.geojson", json.dumps(GEOJSON))
+        instance = plugin.GammaEarthPlugin.__new__(plugin.GammaEarthPlugin)
+        instance.dialog = mock.Mock()
+        instance.dialog.get_data.return_value = {
+            "aoi_mode": 2, "geojson": path, "cdse_from": "2024-01-01",
+            "cdse_to": "2024-01-31", "cdse_cloud": "100"}
+        instance.run_request = mock.Mock()
+        instance.check_cdse_dates()
+        errors = [c for c in instance.dialog.set_status.call_args_list
+                  if "parse" in str(c)]
+        self.assertEqual(errors, [])
+
     def test_a_bounding_box_is_still_sent_as_aoi(self):
         body = self._submit("1 2 3 4")
         self.assertEqual(body["aoi"], "1 2 3 4")

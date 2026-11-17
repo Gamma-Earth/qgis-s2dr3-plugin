@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.1] - 2026-11-17
+
+- Fix: submitting a job with an AOI file failed with "max_clouds must be a number between 0 and 100"; the date range and maximum cloud cover are now sent as numbers on that route.
+- Fix: *Check Sentinel-2 dates in CDSE* failed with "Could not parse AOI" when the AOI came from a file; it now searches over the box around the shape.
+
 ## [1.2.0] - 2026-11-17
 
 - AOI from a file: GeoJSON, KML or GPX. The file is sent to the service (`aoi_file`), which crops the result to the shape and prices it by the shape's area, not its bounding box. The labels no longer say GeoJSON only.
